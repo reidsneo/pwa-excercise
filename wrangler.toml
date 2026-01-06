@@ -1,0 +1,19 @@
+name = "delicate-grass-4a98"
+main = "./src/worker/index.ts"
+compatibility_date = "2025-10-08"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[assets]
+directory = "./dist/client"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sample-worker-neo-db"
+database_id = "sample-worker-neo-db"
+
+[vars]
+JWT_SECRET = "your-secret-key-change-in-production"
