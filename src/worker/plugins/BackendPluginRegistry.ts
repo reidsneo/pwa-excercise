@@ -420,9 +420,10 @@ class BackendPluginRegistryImpl {
       return { valid: false, error: 'Plugin version is required' };
     }
 
-    const idPattern = /^[a-z0-9-]+\/[a-z0-9-]+$/;
-    if (!idPattern.test(manifest.id)) {
-      return { valid: false, error: 'Plugin ID must be in format: vendor-name/plugin-name' };
+    // Validate UUID format (optional but recommended)
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(manifest.id)) {
+      console.warn(`Plugin ID "${manifest.id}" is not a valid UUID format. Recommended to use UUIDs.`);
     }
 
     return { valid: true };
@@ -541,7 +542,8 @@ class BackendPluginRegistryImpl {
 
     // Register each endpoint
     for (const endpoint of manifest.endpoints) {
-      const fullPath = `/api/plugins/${manifest.id.split('/')[1]}${endpoint.path}`;
+      // Use plugin name instead of ID for URL routing
+      const fullPath = `/api/plugins/${manifest.name}${endpoint.path}`;
 
       // TODO: Register route with Hono app
       // This requires handler functions to be part of the endpoint definition

@@ -9,10 +9,16 @@
 // -----------------------------------------------------------------------------
 
 /**
- * Unique plugin identifier (format: vendor-name/plugin-name)
- * @example "my-company/user-dashboard"
+ * Unique plugin identifier (UUID format)
+ * @example "a1b2c3d4-e5f6-4a5b-8c7d-1e2f3a4b5c6d"
  */
-export type PluginId = `${string}/${string}`;
+export type PluginId = string;
+
+/**
+ * Plugin name (can be duplicated, user-defined)
+ * @example "blog", "my-custom-blog"
+ */
+export type PluginName = string;
 
 /**
  * Semantic version string
@@ -164,10 +170,10 @@ export interface PluginHook {
  */
 export interface PluginManifest {
   // ----- Identity -----
-  /** Unique plugin identifier */
+  /** Unique plugin identifier (UUID) */
   id: PluginId;
-  /** Human-readable name */
-  name: string;
+  /** Plugin name (user-friendly, can be duplicated) */
+  name: PluginName;
   /** Plugin description */
   description?: string;
   /** Plugin version */
@@ -246,7 +252,7 @@ export interface PluginManifest {
 export interface PluginApiEndpoint {
   /** HTTP method */
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  /** Route path (will be prefixed with /api/plugins/:pluginId) */
+  /** Route path (will be prefixed with /api/plugins/:name) */
   path: string;
   /** Required permission to access endpoint */
   permission?: string;
@@ -298,8 +304,18 @@ export interface PluginWebhook {
 export interface BackendPluginManifest {
   // ----- Identity (same as frontend) -----
   id: PluginId;
-  name: string;
+  name: PluginName;
   version: PluginVersion;
+  /** Plugin description */
+  description?: string;
+  /** Plugin author/organization */
+  author?: string;
+  /** Homepage URL */
+  homepage?: string;
+  /** Documentation URL */
+  docs?: string;
+  /** Repository URL */
+  repository?: string;
 
   // ----- Dependencies -----
   priority?: PluginPriority;
@@ -351,7 +367,7 @@ export interface HonoMiddleware {
  * Stored plugin state
  */
 export interface PluginState {
-  /** Plugin identifier */
+  /** Plugin identifier (UUID) */
   id: PluginId;
   /** Current status */
   status: PluginStatus;
@@ -371,7 +387,7 @@ export interface PluginState {
  * Plugin load result
  */
 export interface PluginLoadResult {
-  /** Plugin ID */
+  /** Plugin ID (UUID) */
   id: PluginId;
   /** Whether loading was successful */
   success: boolean;
@@ -457,7 +473,7 @@ export enum PluginEventType {
 export interface PluginEvent {
   /** Event type */
   type: PluginEventType;
-  /** Plugin ID */
+  /** Plugin ID (UUID) */
   pluginId: PluginId;
   /** Event data */
   data?: unknown;

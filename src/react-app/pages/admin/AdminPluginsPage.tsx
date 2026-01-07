@@ -4,7 +4,7 @@
 // Full-featured plugin management interface for admin
 // =============================================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -47,9 +47,23 @@ import {
   RefreshCw,
   Upload,
 } from 'lucide-react';
-import { usePlugins, usePluginStates } from '@/plugins';
 import type { PluginState, PluginManifest } from '@/shared/plugin';
 import { PluginStatus } from '@/shared/plugin';
+
+// -----------------------------------------------------------------------------
+// Auth Helper
+// -----------------------------------------------------------------------------
+
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 // -----------------------------------------------------------------------------
 // Plugin Status Badge Component
@@ -82,7 +96,7 @@ function PluginStatusBadge({ status }: { status: PluginStatus }) {
 // -----------------------------------------------------------------------------
 
 interface PluginCardProps {
-  manifest: PluginManifest;
+  manifest: BackendPlugin | PluginManifest;
   state: PluginState;
   onEnable: (id: string) => Promise<void>;
   onDisable: (id: string) => Promise<void>;
@@ -92,6 +106,13 @@ interface PluginCardProps {
 }
 
 function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfigure, loading }: PluginCardProps) {
+  // Type guard to check if manifest is a PluginManifest
+  const isPluginManifest = (m: BackendPlugin | PluginManifest): m is PluginManifest => {
+    return 'permissions' in m || 'settings' in m || 'routes' in m;
+  };
+
+  const hasSettings = isPluginManifest(manifest) && manifest.settings;
+  const hasPermissions = isPluginManifest(manifest) && manifest.permissions && manifest.permissions.length > 0;
 
   const handleToggle = async () => {
     if (state.status === PluginStatus.ENABLED) {
@@ -138,7 +159,7 @@ function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfi
             {state.status === PluginStatus.ENABLED ? 'Enabled' : 'Disabled'}
           </span>
           <div className="flex-1" />
-          {manifest.settings && state.status === PluginStatus.ENABLED && (
+          {hasSettings && state.status === PluginStatus.ENABLED && (
             <Button
               variant="outline"
               size="sm"
@@ -162,15 +183,15 @@ function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfi
             <p className="text-sm text-red-700">{state.error}</p>
           </div>
         )}
-        {manifest.permissions && manifest.permissions.length > 0 && (
+        {hasPermissions && isPluginManifest(manifest) && (
           <div className="mt-4">
             <p className="text-xs font-semibold text-muted-foreground mb-2">Permissions:</p>
             <div className="flex flex-wrap gap-2">
-              {manifest.permissions.map((perm) => (
+              {manifest.permissions?.map((perm) => (
                 <Badge key={perm.id} variant="outline" className="text-xs">
                   {perm.name}
                 </Badge>
-              ))}
+              )) || []}
             </div>
           </div>
         )}
@@ -184,7 +205,7 @@ function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfi
 // -----------------------------------------------------------------------------
 
 interface InstalledPluginsProps {
-  manifests: PluginManifest[];
+  manifests: (BackendPlugin | PluginManifest)[];
   states: PluginState[];
   onEnable: (id: string) => Promise<void>;
   onDisable: (id: string) => Promise<void>;
@@ -281,7 +302,7 @@ function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplacePr
   // For now, hardcode available plugins that can be installed
   const availablePlugins = [
     {
-      id: 'blog/blog',
+      id: '550e8400-e29b-41d4-a716-446655440001',
       name: 'Blog Plugin',
       description: 'Full-featured blog with posts, categories, and tags',
       version: '1.0.0',
@@ -358,7 +379,11 @@ function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplacePr
 // Dependencies Tab
 // -----------------------------------------------------------------------------
 
-function Dependencies({ manifests, states }: { manifests: PluginManifest[]; states: PluginState[] }) {
+function Dependencies({ manifests, states }: { manifests: (BackendPlugin | PluginManifest)[]; states: PluginState[] }) {
+  const isPluginManifest = (m: BackendPlugin | PluginManifest): m is PluginManifest => {
+    return 'dependencies' in m;
+  };
+
   return (
     <div className="space-y-4">
       <Table>
@@ -374,9 +399,9 @@ function Dependencies({ manifests, states }: { manifests: PluginManifest[]; stat
             const manifest = manifests.find((m) => m.id === state.id);
             if (!manifest) return null;
 
-            const dependencies = manifest.dependencies || [];
+            const dependencies = isPluginManifest(manifest) ? (manifest.dependencies || []) : [];
             const dependents = manifests.filter((m) =>
-              m.dependencies?.some((d) => d.pluginId === manifest.id)
+              isPluginManifest(m) && m.dependencies?.some((d) => d.pluginId === manifest.id)
             );
 
             return (
@@ -421,25 +446,52 @@ function Dependencies({ manifests, states }: { manifests: PluginManifest[]; stat
 // Main Admin Plugins Page
 // -----------------------------------------------------------------------------
 
+interface BackendPlugin {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+}
+
 export function AdminPlugins() {
-  const manifests = usePlugins();
-  const states = usePluginStates();
+  const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
+  const [backendStates, setBackendStates] = useState<PluginState[]>([]);
+  const [loadingStates, setLoadingStates] = useState(true);
   const [configurePluginId, setConfigurePluginId] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
+
+  // Fetch plugins and states from backend API
+  const fetchBackendData = async () => {
+    try {
+      const response = await fetch('/api/plugins');
+      if (response.ok) {
+        const data = await response.json();
+        setBackendPlugins(data.plugins || []);
+        setBackendStates(data.states || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch plugin data:', error);
+    } finally {
+      setLoadingStates(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackendData();
+  }, []);
 
   const handleEnable = async (id: string) => {
     setLoading(id);
     try {
-      const response = await fetch(`/api/plugins/${id}/enable`, {
+      const response = await fetch(`/api/plugins/enable`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ pluginId: id }),
       });
 
       if (response.ok) {
-        // Refresh the page to show updated state
-        window.location.reload();
+        await fetchBackendData();
       } else {
         const error = await response.json();
         alert(error.error || 'Failed to enable plugin');
@@ -455,15 +507,14 @@ export function AdminPlugins() {
   const handleDisable = async (id: string) => {
     setLoading(id);
     try {
-      const response = await fetch(`/api/plugins/${id}/disable`, {
+      const response = await fetch(`/api/plugins/disable`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ pluginId: id }),
       });
 
       if (response.ok) {
-        window.location.reload();
+        await fetchBackendData();
       } else {
         const error = await response.json();
         alert(error.error || 'Failed to disable plugin');
@@ -477,21 +528,20 @@ export function AdminPlugins() {
   };
 
   const handleUninstall = async (id: string) => {
-    if (!confirm(`Are you sure you want to uninstall "${id}"? This will remove all plugin data from the database.`)) {
+    if (!confirm(`Are you sure you want to uninstall? This will remove all plugin data from the database.`)) {
       return;
     }
 
     setLoading(id);
     try {
-      const response = await fetch(`/api/plugins/${id}/uninstall`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const response = await fetch(`/api/plugins/uninstall`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ pluginId: id }),
       });
 
       if (response.ok) {
-        window.location.reload();
+        await fetchBackendData();
       } else {
         const error = await response.json();
         alert(error.error || 'Failed to uninstall plugin');
@@ -508,14 +558,14 @@ export function AdminPlugins() {
     setLoading(id);
     try {
       // First register the plugin in the backend registry
-      const response = await fetch(`/api/plugins/${id}/install`, {
+      const response = await fetch(`/api/plugins/install`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ pluginId: id }),
       });
 
       if (response.ok) {
+        await fetchBackendData();
         // Then enable it (which runs migrations)
         await handleEnable(id);
       } else {
@@ -536,7 +586,7 @@ export function AdminPlugins() {
         <div>
           <h2 className="text-3xl font-bold">Plugins</h2>
           <p className="text-muted-foreground">
-            {manifests.length} plugin{manifests.length !== 1 ? 's' : ''} installed
+            {backendPlugins.length} plugin{backendPlugins.length !== 1 ? 's' : ''} installed
           </p>
         </div>
       </div>
@@ -544,7 +594,7 @@ export function AdminPlugins() {
       <Tabs defaultValue="installed" className="space-y-4">
         <TabsList>
           <TabsTrigger value="installed">
-            Installed ({states.length})
+            Installed ({backendStates.length})
           </TabsTrigger>
           <TabsTrigger value="marketplace">
             Marketplace
@@ -556,8 +606,8 @@ export function AdminPlugins() {
 
         <TabsContent value="installed">
           <InstalledPlugins
-            manifests={manifests}
-            states={states}
+            manifests={backendPlugins}
+            states={backendStates}
             onEnable={handleEnable}
             onDisable={handleDisable}
             onUninstall={handleUninstall}
@@ -568,14 +618,14 @@ export function AdminPlugins() {
 
         <TabsContent value="marketplace">
           <Marketplace
-            installedIds={manifests.map((m) => m.id)}
+            installedIds={backendPlugins.map((m) => m.id)}
             onInstall={handleInstall}
             loadingPluginId={loading}
           />
         </TabsContent>
 
         <TabsContent value="dependencies">
-          <Dependencies manifests={manifests} states={states} />
+          <Dependencies manifests={backendPlugins} states={backendStates} />
         </TabsContent>
       </Tabs>
 

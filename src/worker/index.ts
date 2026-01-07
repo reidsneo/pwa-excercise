@@ -397,11 +397,339 @@ app.get("/api/admin/permissions", async (c) => {
 // BACKEND PLUGIN SYSTEM INTEGRATION
 // =============================================================================
 
-import { BackendPluginRegistry } from "./plugins/BackendPluginRegistry";
-import { createBlogRoutes } from "./plugins/blog";
+// Test route to verify routing is working
+app.get("/api/plugins/test", (c) => {
+	console.log('[Test Route] ===== HIT =====');
+	return c.json({ message: "Plugin routes are working!" });
+});
 
-// Mount blog routes directly
-app.route('/', createBlogRoutes());
+import { BackendPluginRegistry } from "./plugins/BackendPluginRegistry";
+import type { PluginId } from "@/shared/plugin";
+import { createBlogRoutes, manifest as blogManifest } from "./plugins/blog";
+
+// Register blog plugin with the registry
+BackendPluginRegistry.register(blogManifest).catch((error) => {
+  console.error('[Plugins] Failed to register blog plugin:', error);
+});
+
+// Create blog routes
+const blogRoutes = createBlogRoutes();
+
+// =============================================================================
+// API Routes - Plugin Management
+// =============================================================================
+
+// Get all plugins
+app.get("/api/plugins", async (c) => {
+	const plugins = BackendPluginRegistry.getAllPlugins();
+	const states = BackendPluginRegistry.getAllPluginStates();
+
+	return c.json({
+		plugins: plugins.map((p) => ({
+			id: p.id,
+			name: p.name,
+			version: p.version,
+			description: p.description,
+			author: p.author,
+		})),
+		states: states,
+	});
+});
+
+// Get plugin by ID
+app.get("/api/plugins/:pluginId", async (c) => {
+	const pluginId = c.req.param("pluginId");
+	const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
+	const state = BackendPluginRegistry.getPluginState(pluginId as PluginId);
+
+	if (!plugin) {
+		return c.json({ error: "Plugin not found" }, 404);
+	}
+
+	return c.json({
+		plugin,
+		state,
+	});
+});
+
+// Install plugin
+app.post("/api/plugins/install", async (c) => {
+	console.log('[Plugin Install] ===== ROUTE HIT =====');
+	const token = auth.getAuthToken(c.req.raw);
+	if (!token || !(await auth.verifyToken(token, c.env))) {
+		return c.json({ error: "Not authenticated" }, 401);
+	}
+
+	const { pluginId } = await c.req.json();
+
+	if (!pluginId) {
+		return c.json({ error: "pluginId is required" }, 400);
+	}
+
+	// Check if plugin is already installed
+	const existing = await c.env.DB
+		.prepare("SELECT id FROM plugin_states WHERE id = ?")
+		.bind(pluginId)
+		.first();
+
+	if (existing) {
+		return c.json({ error: "Plugin is already installed" }, 400);
+	}
+
+	// Register the plugin
+	const result = await BackendPluginRegistry.register(
+		BackendPluginRegistry.getPlugin(pluginId as PluginId)!
+	);
+
+	if (result.success) {
+		// Add plugin state to database as 'installed'
+		await c.env.DB
+			.prepare(`
+				INSERT INTO plugin_states (id, status, version, updated_at)
+				VALUES (?, 'installed', '1.0.0', strftime('%s', 'now'))
+			`)
+			.bind(pluginId)
+			.run();
+
+		return c.json({ success: true });
+	}
+
+	return c.json({ error: result.error || "Failed to install plugin" }, 400);
+});
+
+// Enable plugin (using POST body instead of URL param)
+app.post("/api/plugins/enable", async (c) => {
+	console.log('[Plugin Enable] ===== ROUTE HIT =====');
+	console.log('[Plugin Enable] URL:', c.req.url);
+	console.log('[Plugin Enable] Method:', c.req.method);
+
+	const token = auth.getAuthToken(c.req.raw);
+	if (!token || !(await auth.verifyToken(token, c.env))) {
+		console.log('[Plugin Enable] Auth failed');
+		return c.json({ error: "Not authenticated" }, 401);
+	}
+
+	const { pluginId } = await c.req.json();
+	console.log('[Plugin Enable] Enabling plugin:', pluginId);
+
+	if (!pluginId) {
+		return c.json({ error: "pluginId is required" }, 400);
+	}
+
+	try {
+		const result = await BackendPluginRegistry.enable(pluginId as PluginId);
+		console.log('[Plugin Enable] Result:', result);
+
+		if (!result.success) {
+			console.log('[Plugin Enable] FAILED:', result.error);
+			return c.json({ error: result.error }, 400);
+		}
+
+		// Run migrations when plugin is enabled
+		try {
+			await runPluginMigrations(pluginId, c.env);
+		} catch (migrationError) {
+			console.error('[Plugin Enable] Migration failed:', migrationError);
+			// Rollback the enable operation
+			await BackendPluginRegistry.disable(pluginId as PluginId);
+			return c.json({ error: `Migration failed: ${migrationError instanceof Error ? migrationError.message : String(migrationError)}` }, 500);
+		}
+
+		// Update plugin state in database
+		const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
+		await c.env.DB
+			.prepare(`
+				INSERT OR REPLACE INTO plugin_states (id, status, version, enabled_at, disabled_at, updated_at)
+				VALUES (?, 'enabled', ?, strftime('%s', 'now'), NULL, strftime('%s', 'now'))
+			`)
+			.bind(pluginId, plugin?.version || '1.0.0')
+			.run();
+
+		console.log('[Plugin Enable] SUCCESS');
+		return c.json({ success: true });
+	} catch (error) {
+		console.error('[Plugin Enable] Unexpected error:', error);
+		return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+	}
+});
+
+// Disable plugin (using POST body instead of URL param)
+app.post("/api/plugins/disable", async (c) => {
+	console.log('[Plugin Disable] ===== ROUTE HIT =====');
+	const token = auth.getAuthToken(c.req.raw);
+	if (!token || !(await auth.verifyToken(token, c.env))) {
+		return c.json({ error: "Not authenticated" }, 401);
+	}
+
+	const { pluginId } = await c.req.json();
+	console.log('[Plugin Disable] Disabling plugin:', pluginId);
+
+	if (!pluginId) {
+		return c.json({ error: "pluginId is required" }, 400);
+	}
+
+	const result = await BackendPluginRegistry.disable(pluginId as PluginId);
+
+	if (result.success) {
+		// Update plugin state in database
+		const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
+		await c.env.DB
+			.prepare(`
+				INSERT OR REPLACE INTO plugin_states (id, status, version, disabled_at, updated_at)
+				VALUES (?, 'disabled', ?, strftime('%s', 'now'), strftime('%s', 'now'))
+			`)
+			.bind(pluginId, plugin?.version || '1.0.0')
+			.run();
+
+		console.log('[Plugin Disable] SUCCESS');
+		return c.json({ success: true });
+	}
+
+	console.log('[Plugin Disable] FAILED:', result.error);
+	return c.json({ error: result.error }, 400);
+});
+
+// Uninstall plugin (using POST body instead of URL param)
+app.post("/api/plugins/uninstall", async (c) => {
+	console.log('[Plugin Uninstall] ===== ROUTE HIT =====');
+	const token = auth.getAuthToken(c.req.raw);
+	if (!token || !(await auth.verifyToken(token, c.env))) {
+		return c.json({ error: "Not authenticated" }, 401);
+	}
+
+	const { pluginId } = await c.req.json();
+	console.log('[Plugin Uninstall] Uninstalling plugin:', pluginId);
+
+	if (!pluginId) {
+		return c.json({ error: "pluginId is required" }, 400);
+	}
+
+	// Rollback migrations before uninstalling
+	await rollbackPluginMigrations(pluginId, c.env);
+
+	await BackendPluginRegistry.unregister(pluginId as PluginId);
+
+	// Remove plugin state from database
+	await c.env.DB
+		.prepare("DELETE FROM plugin_states WHERE id = ?")
+		.bind(pluginId)
+		.run();
+
+	console.log('[Plugin Uninstall] SUCCESS');
+	return c.json({ success: true });
+});
+
+// Seed blog sample data (development helper)
+app.post("/api/blog/seed", async (c) => {
+	console.log('[Blog Seed] Seeding blog sample data...');
+
+	const db = c.env.DB;
+
+	try {
+		// Insert sample categories
+		await db.prepare(`
+			INSERT OR IGNORE INTO blog_categories (name, slug, description) VALUES
+			('Technology', 'technology', 'Latest tech news and insights'),
+			('Programming', 'programming', 'Coding tutorials and best practices'),
+			('Web Development', 'web-development', 'Frontend and backend development tips')
+		`).run();
+
+		// Insert sample tags
+		await db.prepare(`
+			INSERT OR IGNORE INTO blog_tags (name, slug) VALUES
+			('JavaScript', 'javascript'),
+			('TypeScript', 'typescript'),
+			('React', 'react'),
+			('Cloudflare', 'cloudflare'),
+			('Tutorial', 'tutorial')
+		`).run();
+
+		// Insert sample posts
+		await db.prepare(`
+			INSERT OR IGNORE INTO blog_posts (title, slug, content, excerpt, author_id, status, published_at) VALUES
+			(
+				'Getting Started with Cloudflare Workers',
+				'getting-started-with-cloudflare-workers',
+				'Cloudflare Workers allow you to run JavaScript at the edge, closer to your users worldwide. In this tutorial, we''ll explore the basics of building serverless applications with Workers.
+
+You''ll learn how to:
+- Set up your development environment
+- Create your first Worker
+- Deploy to the Cloudflare network
+- Handle HTTP requests and responses
+
+Let''s dive in and start building edge applications!',
+				'Learn how to build serverless applications with Cloudflare Workers',
+				1,
+				'published',
+				strftime('%s', 'now', '-7 days')
+			),
+			(
+				'TypeScript Best Practices for 2025',
+				'typescript-best-practices-2025',
+				'TypeScript has become the de facto standard for building large-scale JavaScript applications. Here are the best practices you should follow in 2025:
+
+1. Use strict mode
+2. Leverage type inference
+3. Avoid any types
+4. Use utility types
+5. Implement proper error handling
+
+These practices will help you write more maintainable and type-safe code.',
+				'Modern TypeScript practices for better code quality',
+				1,
+				'published',
+				strftime('%s', 'now', '-5 days')
+			),
+			(
+				'Building a Plugin System with React',
+				'building-plugin-system-with-react',
+				'Plugin architectures enable extensibility and modularity in your applications. In this guide, we''ll build a dynamic plugin system using React.
+
+Key concepts covered:
+- Plugin registry pattern
+- Dynamic component loading
+- Lifecycle management
+- Communication between plugins
+
+Let''s create a flexible plugin system that scales with your application.',
+				'Create a flexible and scalable plugin architecture',
+				1,
+				'published',
+				strftime('%s', 'now', '-3 days')
+			)
+		`).run();
+
+		// Link posts with categories
+		await db.prepare(`
+			INSERT OR IGNORE INTO blog_post_categories (post_id, category_id)
+			SELECT p.id, c.id FROM blog_posts p
+			CROSS JOIN blog_categories c
+			WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND c.slug = 'technology')
+			   OR (p.slug = 'typescript-best-practices-2025' AND c.slug = 'programming')
+			   OR (p.slug = 'building-plugin-system-with-react' AND c.slug = 'web-development')
+		`).run();
+
+		// Link posts with tags
+		await db.prepare(`
+			INSERT OR IGNORE INTO blog_post_tags (post_id, tag_id)
+			SELECT p.id, t.id FROM blog_posts p
+			CROSS JOIN blog_tags t
+			WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND t.slug IN ('cloudflare', 'tutorial'))
+			   OR (p.slug = 'typescript-best-practices-2025' AND t.slug IN ('typescript', 'javascript'))
+			   OR (p.slug = 'building-plugin-system-with-react' AND t.slug IN ('react', 'tutorial'))
+		`).run();
+
+		console.log('[Blog Seed] Sample data seeded successfully');
+		return c.json({ success: true, message: 'Blog sample data seeded successfully' });
+	} catch (error) {
+		console.error('[Blog Seed] Error seeding data:', error);
+		return c.json({ error: 'Failed to seed blog data', details: error instanceof Error ? error.message : String(error) }, 500);
+	}
+});
+
+// Mount blog routes AFTER plugin management routes
+app.route('/', blogRoutes);
 
 // Migration Runner
 interface PluginMigrationState {
@@ -429,7 +757,7 @@ async function getPluginMigrationStates(env: Env): Promise<Map<string, PluginMig
 				appliedAt,
 			});
 		}
-	} catch (error) {
+	} catch {
 		// Table doesn't exist yet, will be created
 	}
 
@@ -437,19 +765,23 @@ async function getPluginMigrationStates(env: Env): Promise<Map<string, PluginMig
 }
 
 async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean> {
-	const plugin = BackendPluginRegistry.getPlugin(pluginId as `${string}/${string}`);
+	const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
 	if (!plugin?.migrations) return false;
 
 	// Ensure plugin_migrations table exists
-	await env.DB.exec(`
-		CREATE TABLE IF NOT EXISTS plugin_migrations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			plugin_id TEXT NOT NULL,
-			version TEXT NOT NULL,
-			applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-			UNIQUE(plugin_id, version)
-		)
-	`);
+	try {
+		await env.DB.prepare(`
+			CREATE TABLE IF NOT EXISTS plugin_migrations (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				plugin_id TEXT NOT NULL,
+				version TEXT NOT NULL,
+				applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+				UNIQUE(plugin_id, version)
+			)
+		`).run();
+	} catch (error) {
+		console.warn('[Migration] Failed to create plugin_migrations table (may already exist):', error);
+	}
 
 	const appliedStates = await getPluginMigrationStates(env);
 	const appliedVersions = new Set(
@@ -465,12 +797,9 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 		console.log(`[Migration] Applying ${pluginId} version ${migration.version}: ${migration.name}`);
 
 		try {
-			// Run up migration
-			for (const statement of migration.up.split(';').filter((s) => s.trim())) {
-				if (statement.trim()) {
-					await env.DB.exec(statement.trim());
-				}
-			}
+			// Run up migration using exec() for multi-statement SQL
+			// This handles semicolons in string literals correctly
+			await env.DB.exec(migration.up);
 
 			// Record migration
 			await env.DB
@@ -489,7 +818,7 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 }
 
 async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boolean> {
-	const plugin = BackendPluginRegistry.getPlugin(pluginId as `${string}/${string}`);
+	const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
 	if (!plugin?.migrations) return false;
 
 	const appliedStates = await getPluginMigrationStates(env);
@@ -506,12 +835,9 @@ async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boo
 		console.log(`[Migration] Rolling back ${pluginId} version ${migration.version}: ${migration.name}`);
 
 		try {
-			// Run down migration
-			for (const statement of migration.down.split(';').filter((s) => s.trim())) {
-				if (statement.trim()) {
-					await env.DB.exec(statement.trim());
-				}
-			}
+			// Run down migration using exec() for multi-statement SQL
+			// This handles semicolons in string literals correctly
+			await env.DB.exec(migration.down);
 
 			// Remove migration record
 			await env.DB
@@ -547,120 +873,5 @@ async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boo
 // 	}
 // 	await next();
 // });
-
-// Plugin management API endpoints
-app.post("/api/plugins/:pluginId/install", async (c) => {
-	const token = auth.getAuthToken(c.req.raw);
-	if (!token || !(await auth.verifyToken(token, c.env))) {
-		return c.json({ error: "Not authenticated" }, 401);
-	}
-
-	const pluginId = c.req.param("pluginId");
-
-	// Check if plugin is already installed
-	const existing = await c.env.DB
-		.prepare("SELECT id FROM plugin_states WHERE id = ?")
-		.bind(pluginId)
-		.first();
-
-	if (existing) {
-		return c.json({ error: "Plugin is already installed" }, 400);
-	}
-
-	// Register the plugin
-	const result = await BackendPluginRegistry.register(
-		BackendPluginRegistry.getPlugin(pluginId as `${string}/${string}`)!
-	);
-
-	if (result.success) {
-		// Add plugin state to database as 'installed'
-		await c.env.DB
-			.prepare(`
-				INSERT INTO plugin_states (id, status, version, updated_at)
-				VALUES (?, 'installed', '1.0.0', strftime('%s', 'now'))
-			`)
-			.bind(pluginId)
-			.run();
-
-		return c.json({ success: true });
-	}
-
-	return c.json({ error: result.error || "Failed to install plugin" }, 400);
-});
-
-app.post("/api/plugins/:pluginId/enable", async (c) => {
-	const token = auth.getAuthToken(c.req.raw);
-	if (!token || !(await auth.verifyToken(token, c.env))) {
-		return c.json({ error: "Not authenticated" }, 401);
-	}
-
-	const pluginId = c.req.param("pluginId");
-	const result = await BackendPluginRegistry.enable(pluginId as any);
-
-	if (result.success) {
-		// Run migrations when plugin is enabled
-		await runPluginMigrations(pluginId, c.env);
-
-		// Update plugin state in database
-		await c.env.DB
-			.prepare(`
-				INSERT OR REPLACE INTO plugin_states (id, status, enabled_at, disabled_at, updated_at)
-				VALUES (?, 'enabled', strftime('%s', 'now'), NULL, strftime('%s', 'now'))
-			`)
-			.bind(pluginId)
-			.run();
-
-		return c.json({ success: true });
-	}
-
-	return c.json({ error: result.error }, 400);
-});
-
-app.post("/api/plugins/:pluginId/disable", async (c) => {
-	const token = auth.getAuthToken(c.req.raw);
-	if (!token || !(await auth.verifyToken(token, c.env))) {
-		return c.json({ error: "Not authenticated" }, 401);
-	}
-
-	const pluginId = c.req.param("pluginId");
-	const result = await BackendPluginRegistry.disable(pluginId as any);
-
-	if (result.success) {
-		// Update plugin state in database
-		await c.env.DB
-			.prepare(`
-				INSERT OR REPLACE INTO plugin_states (id, status, disabled_at, updated_at)
-				VALUES (?, 'disabled', strftime('%s', 'now'), strftime('%s', 'now'))
-			`)
-			.bind(pluginId)
-			.run();
-
-		return c.json({ success: true });
-	}
-
-	return c.json({ error: result.error }, 400);
-});
-
-app.delete("/api/plugins/:pluginId/uninstall", async (c) => {
-	const token = auth.getAuthToken(c.req.raw);
-	if (!token || !(await auth.verifyToken(token, c.env))) {
-		return c.json({ error: "Not authenticated" }, 401);
-	}
-
-	const pluginId = c.req.param("pluginId");
-
-	// Rollback migrations before uninstalling
-	await rollbackPluginMigrations(pluginId, c.env);
-
-	await BackendPluginRegistry.unregister(pluginId as any);
-
-	// Remove plugin state from database
-	await c.env.DB
-		.prepare("DELETE FROM plugin_states WHERE id = ?")
-		.bind(pluginId)
-		.run();
-
-	return c.json({ success: true });
-});
 
 export default app;

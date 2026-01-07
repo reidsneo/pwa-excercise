@@ -4,6 +4,8 @@
 		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
 		"types": ["vite/client", "./worker-configuration.d.ts"],
 		"baseUrl": ".",
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
 		"paths": {
 			"@/shared/*": ["./src/shared/*"],
 			"@/shared": ["./src/shared"]

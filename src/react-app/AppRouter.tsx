@@ -9,6 +9,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { useEffect, useState } from "react";
 import { PluginRegistry, PluginLoader } from "./plugins";
 import { usePluginRoutes } from "./plugins/PluginRoutes";
+import { ToastProvider } from "./hooks/use-toast.tsx";
 
 // -----------------------------------------------------------------------------
 // Plugin Initialization Component
@@ -64,33 +65,35 @@ function App() {
 
 	return (
 		<PluginInitializer>
-			<AuthProvider>
-				<BrowserRouter>
-					<Routes>
-						{/* Core Routes */}
-						<Route path="/" element={<UserApp />} />
-						<Route path="/user/*" element={<UserApp />} />
-						<Route path="/login" element={<LoginPage />} />
-						<Route path="/register" element={<RegisterPage />} />
-						<Route
-							path="/admin/*"
-							element={
-								<ProtectedRoute requireAdmin={true}>
-									<AdminApp />
-								</ProtectedRoute>
-							}
-						/>
+			<ToastProvider>
+				<AuthProvider>
+					<BrowserRouter>
+						<Routes>
+							{/* Core Routes */}
+							<Route path="/" element={<UserApp />} />
+							<Route path="/user/*" element={<UserApp />} />
+							<Route path="/login" element={<LoginPage />} />
+							<Route path="/register" element={<RegisterPage />} />
+							<Route
+								path="/admin/*"
+								element={
+									<ProtectedRoute requireAdmin={true}>
+										<AdminApp />
+									</ProtectedRoute>
+								}
+							/>
 
-						{/* Plugin Routes */}
-						{pluginRoutes.map((route: { path?: string; element?: React.ReactNode }, index: number) => (
-							<Route key={`plugin-${index}`} path={route.path || ''} element={route.element} />
-						))}
+							{/* Plugin Routes */}
+							{pluginRoutes.map((route: { path?: string; element?: React.ReactNode }, index: number) => (
+								<Route key={`plugin-${index}`} path={route.path || ''} element={route.element} />
+							))}
 
-						{/* Catch-all */}
-						<Route path="*" element={<Navigate to="/" replace />} />
-					</Routes>
-				</BrowserRouter>
-			</AuthProvider>
+							{/* Catch-all */}
+							<Route path="*" element={<Navigate to="/" replace />} />
+						</Routes>
+					</BrowserRouter>
+				</AuthProvider>
+			</ToastProvider>
 		</PluginInitializer>
 	);
 }

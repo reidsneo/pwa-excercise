@@ -1,10 +1,11 @@
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LayoutDashboard, Users, Shield, Settings, BarChart, LogOut, Puzzle } from "lucide-react";
+import { LayoutDashboard, Users, Shield, Settings, BarChart, LogOut, Puzzle, FileText } from "lucide-react";
 import { AdminUsers } from "@/pages/admin/AdminUsersPage";
 import { AdminRoles } from "@/pages/admin/AdminRolesPage";
 import { AdminPlugins } from "@/pages/admin/AdminPluginsPage";
+import { AdminBlogListPage, AdminBlogEditPage } from "@/pages/admin/blog";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface MenuItem {
@@ -15,9 +16,20 @@ interface MenuItem {
 }
 
 export function AdminApp() {
-	const { hasPermission } = useAuth();
+	const { hasPermission, user } = useAuth();
+
+	// Helper function to check if user has permission OR is admin
+	const canAccess = (resource: string, action: string) => {
+		return hasPermission(resource, action) || user?.roleId === 1;
+	};
 
 	const menuItems: MenuItem[] = [
+		{
+			path: "/admin/blog",
+			label: "Blog",
+			icon: FileText,
+			permission: { resource: "blog", action: "manage" },
+		},
 		{
 			path: "/admin/users",
 			label: "Users",
@@ -51,7 +63,7 @@ export function AdminApp() {
 	];
 
 	const filteredMenuItems = menuItems.filter((item) =>
-		hasPermission(item.permission.resource, item.permission.action)
+		canAccess(item.permission.resource, item.permission.action)
 	);
 
 	return (
@@ -107,19 +119,26 @@ export function AdminApp() {
 					<main className="p-8">
 						<Routes>
 							<Route path="/" element={<AdminDashboard />} />
-							{hasPermission("users", "view") && (
+							{canAccess("blog", "manage") && (
+								<>
+									<Route path="/blog" element={<AdminBlogListPage />} />
+									<Route path="/blog/new" element={<AdminBlogEditPage />} />
+									<Route path="/blog/:id" element={<AdminBlogEditPage />} />
+								</>
+							)}
+							{canAccess("users", "view") && (
 								<Route path="/users" element={<AdminUsers />} />
 							)}
-							{hasPermission("roles", "view") && (
+							{canAccess("roles", "view") && (
 								<Route path="/roles" element={<AdminRoles />} />
 							)}
-							{hasPermission("plugins", "view") && (
+							{canAccess("plugins", "view") && (
 								<Route path="/plugins" element={<AdminPlugins />} />
 							)}
-							{hasPermission("analytics", "view") && (
+							{canAccess("analytics", "view") && (
 								<Route path="/analytics" element={<AdminAnalytics />} />
 							)}
-							{hasPermission("settings", "view") && (
+							{canAccess("settings", "view") && (
 								<Route path="/settings" element={<AdminSettings />} />
 							)}
 							<Route path="*" element={<Navigate to="/admin" replace />} />

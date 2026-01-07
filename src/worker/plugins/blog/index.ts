@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { BackendPluginManifest } from '@/shared/plugin';
 import type { Env } from '../../db';
+import { verifyAuth, requireAuth, requireAdmin } from '../../middleware/auth';
 
 // -----------------------------------------------------------------------------
 // Blog Plugin Manifest
@@ -15,9 +16,9 @@ import type { Env } from '../../db';
 
 export const manifest: BackendPluginManifest = {
   // ----- Identity -----
-  id: 'blog/blog' as const,
-  name: 'Blog Plugin',
-  version: '1.0.0',
+  id: '550e8400-e29b-41d4-a716-446655440001' as const,
+  name: 'blog',
+  version: '1.1.0',
 
   // ----- Dependencies -----
   priority: 100,
@@ -112,20 +113,121 @@ export const manifest: BackendPluginManifest = {
         DROP TABLE IF EXISTS blog_posts;
       `,
     },
+    {
+      version: '1.1.0',
+      name: 'Insert sample data',
+      up: `
+        -- Insert sample categories
+        INSERT OR IGNORE INTO blog_categories (name, slug, description) VALUES
+        ('Technology', 'technology', 'Latest tech news and insights'),
+        ('Programming', 'programming', 'Coding tutorials and best practices'),
+        ('Web Development', 'web-development', 'Frontend and backend development tips');
+
+        -- Insert sample tags
+        INSERT OR IGNORE INTO blog_tags (name, slug) VALUES
+        ('JavaScript', 'javascript'),
+        ('TypeScript', 'typescript'),
+        ('React', 'react'),
+        ('Cloudflare', 'cloudflare'),
+        ('Tutorial', 'tutorial');
+
+        -- Insert sample posts (assuming author_id = 1 exists)
+        INSERT OR IGNORE INTO blog_posts (title, slug, content, excerpt, author_id, status, published_at) VALUES
+        (
+          'Getting Started with Cloudflare Workers',
+          'getting-started-with-cloudflare-workers',
+          'Cloudflare Workers allow you to run JavaScript at the edge, closer to your users worldwide. In this tutorial, we''ll explore the basics of building serverless applications with Workers.
+
+You''ll learn how to:
+- Set up your development environment
+- Create your first Worker
+- Deploy to the Cloudflare network
+- Handle HTTP requests and responses
+
+Let''s dive in and start building edge applications!',
+          'Learn how to build serverless applications with Cloudflare Workers',
+          1,
+          'published',
+          strftime('%s', 'now', '-7 days')
+        ),
+        (
+          'TypeScript Best Practices for 2025',
+          'typescript-best-practices-2025',
+          'TypeScript has become the de facto standard for building large-scale JavaScript applications. Here are the best practices you should follow in 2025:
+
+1. Use strict mode
+2. Leverage type inference
+3. Avoid any types
+4. Use utility types
+5. Implement proper error handling
+
+These practices will help you write more maintainable and type-safe code.',
+          'Modern TypeScript practices for better code quality',
+          1,
+          'published',
+          strftime('%s', 'now', '-5 days')
+        ),
+        (
+          'Building a Plugin System with React',
+          'building-plugin-system-with-react',
+          'Plugin architectures enable extensibility and modularity in your applications. In this guide, we''ll build a dynamic plugin system using React.
+
+Key concepts covered:
+- Plugin registry pattern
+- Dynamic component loading
+- Lifecycle management
+- Communication between plugins
+
+Let''s create a flexible plugin system that scales with your application.',
+          'Create a flexible and scalable plugin architecture',
+          1,
+          'published',
+          strftime('%s', 'now', '-3 days')
+        );
+
+        -- Link posts with categories
+        INSERT OR IGNORE INTO blog_post_categories (post_id, category_id)
+        SELECT p.id, c.id FROM blog_posts p
+        CROSS JOIN blog_categories c
+        WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND c.slug = 'technology')
+           OR (p.slug = 'typescript-best-practices-2025' AND c.slug = 'programming')
+           OR (p.slug = 'building-plugin-system-with-react' AND c.slug = 'web-development');
+
+        -- Link posts with tags
+        INSERT OR IGNORE INTO blog_post_tags (post_id, tag_id)
+        SELECT p.id, t.id FROM blog_posts p
+        CROSS JOIN blog_tags t
+        WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND t.slug IN ('cloudflare', 'tutorial'))
+           OR (p.slug = 'typescript-best-practices-2025' AND t.slug IN ('typescript', 'javascript'))
+           OR (p.slug = 'building-plugin-system-with-react' AND t.slug IN ('react', 'tutorial'));
+      `,
+      down: `
+        -- Remove sample data (in reverse order of dependencies)
+        DELETE FROM blog_post_tags WHERE post_id IN (SELECT id FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react'));
+        DELETE FROM blog_post_categories WHERE post_id IN (SELECT id FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react'));
+        DELETE FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react');
+        DELETE FROM blog_tags WHERE slug IN ('javascript', 'typescript', 'react', 'cloudflare', 'tutorial');
+        DELETE FROM blog_categories WHERE slug IN ('technology', 'programming', 'web-development');
+      `,
+    },
   ],
 
   // ----- API Endpoints -----
   endpoints: [
-    { method: 'GET', path: '/posts', permission: 'blog.posts.view', authRequired: true },
-    { method: 'GET', path: '/posts/:id', permission: 'blog.posts.view', authRequired: true },
-    { method: 'POST', path: '/posts', permission: 'blog.posts.create', authRequired: true },
-    { method: 'PUT', path: '/posts/:id', permission: 'blog.posts.edit', authRequired: true },
-    { method: 'DELETE', path: '/posts/:id', permission: 'blog.posts.delete', authRequired: true },
-    { method: 'PATCH', path: '/posts/:id/publish', permission: 'blog.posts.publish', authRequired: true },
-    { method: 'GET', path: '/categories', permission: 'blog.posts.view', authRequired: true },
-    { method: 'POST', path: '/categories', permission: 'blog.categories.manage', authRequired: true },
-    { method: 'GET', path: '/tags', permission: 'blog.posts.view', authRequired: true },
-    { method: 'POST', path: '/tags', permission: 'blog.tags.manage', authRequired: true },
+    // Public user endpoints (no auth required)
+    { method: 'GET', path: '/blog/posts', permission: 'public', authRequired: false },
+    { method: 'GET', path: '/blog/posts/:idOrSlug', permission: 'public', authRequired: false },
+    { method: 'GET', path: '/blog/categories', permission: 'public', authRequired: false },
+    { method: 'GET', path: '/blog/tags', permission: 'public', authRequired: false },
+    // Admin endpoints (auth + admin required)
+    { method: 'GET', path: '/admin/blog/posts', permission: 'blog.posts.manage', authRequired: true },
+    { method: 'GET', path: '/admin/blog/posts/:id', permission: 'blog.posts.manage', authRequired: true },
+    { method: 'POST', path: '/admin/blog/posts', permission: 'blog.posts.create', authRequired: true },
+    { method: 'PUT', path: '/admin/blog/posts/:id', permission: 'blog.posts.edit', authRequired: true },
+    { method: 'DELETE', path: '/admin/blog/posts/:id', permission: 'blog.posts.delete', authRequired: true },
+    { method: 'PATCH', path: '/admin/blog/posts/:id/publish', permission: 'blog.posts.publish', authRequired: true },
+    { method: 'POST', path: '/admin/blog/categories', permission: 'blog.categories.manage', authRequired: true },
+    { method: 'POST', path: '/admin/blog/tags', permission: 'blog.tags.manage', authRequired: true },
   ],
 };
 
@@ -135,44 +237,63 @@ export const manifest: BackendPluginManifest = {
 
 export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+  const publicApp = new Hono<{ Bindings: Env }>();
+  const adminApp = new Hono<{ Bindings: Env }>();
 
   // ============================================================================
-  // POSTS API
+  // PUBLIC USER ENDPOINTS (No auth required)
   // ============================================================================
 
-  // Get all posts with filtering and pagination
-  app.get('/api/plugins/blog/posts', async (c) => {
+  // Get all published posts with filtering and pagination
+  publicApp.get('/posts', async (c) => {
     const db = c.env.DB;
-    const status = c.req.query('status') || 'published';
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '10');
     const offset = (page - 1) * limit;
+    const category = c.req.query('category');
+    const tag = c.req.query('tag');
+
+    let whereClause = 'WHERE p.status = ?';
+    const params: any[] = ['published'];
+
+    if (category) {
+      whereClause += ' AND cat.slug = ?';
+      params.push(category);
+    }
+
+    if (tag) {
+      whereClause += ' AND tag.slug = ?';
+      params.push(tag);
+    }
 
     const posts = await db
       .prepare(`
         SELECT
           p.*,
           u.name as author_name,
-          u.email as author_email,
-          GROUP_CONCAT(DISTINCT cat.name) as categories,
-          GROUP_CONCAT(DISTINCT tag.name) as tags
+          u.email as author_email
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
         LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
         LEFT JOIN blog_categories cat ON pc.category_id = cat.id
         LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
         LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
-        WHERE p.status = ?
+        ${whereClause}
         GROUP BY p.id
-        ORDER BY p.published_at DESC, p.created_at DESC
+        ORDER BY p.published_at DESC
         LIMIT ? OFFSET ?
       `)
-      .bind(status, limit, offset)
+      .bind(...params, limit, offset)
       .all();
 
     const countResult = await db
-      .prepare('SELECT COUNT(*) as total FROM blog_posts WHERE status = ?')
-      .bind(status)
+      .prepare(`SELECT COUNT(DISTINCT p.id) as total FROM blog_posts p
+        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
+        LEFT JOIN blog_categories cat ON pc.category_id = cat.id
+        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
+        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
+        ${whereClause}`)
+      .bind(...params)
       .first();
 
     return c.json({
@@ -186,8 +307,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     });
   });
 
-  // Get single post by ID or slug
-  app.get('/api/plugins/blog/posts/:idOrSlug', async (c) => {
+  // Get single post by ID or slug (public view)
+  publicApp.get('/posts/:idOrSlug', async (c) => {
     const db = c.env.DB;
     const idOrSlug = c.req.param('idOrSlug');
 
@@ -199,7 +320,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           u.email as author_email
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
-        WHERE p.id = ? OR p.slug = ?
+        WHERE (p.id = ? OR p.slug = ?) AND p.status = 'published'
       `)
       .bind(idOrSlug, idOrSlug)
       .first();
@@ -235,9 +356,163 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     });
   });
 
+  // Get all categories (public)
+  publicApp.get('/categories', async (c) => {
+    const db = c.env.DB;
+
+    const categories = await db
+      .prepare(`
+        SELECT
+          c.*,
+          COUNT(DISTINCT pc.post_id) as post_count,
+          p.name as parent_name
+        FROM blog_categories c
+        LEFT JOIN blog_post_categories pc ON c.id = pc.category_id
+        LEFT JOIN blog_categories p ON c.parent_id = p.id
+        GROUP BY c.id
+        ORDER BY c.name
+      `)
+      .all();
+
+    return c.json({ categories: categories.results || [] });
+  });
+
+  // Get all tags (public)
+  publicApp.get('/tags', async (c) => {
+    const db = c.env.DB;
+
+    const tags = await db
+      .prepare(`
+        SELECT
+          t.*,
+          COUNT(DISTINCT pt.post_id) as post_count
+        FROM blog_tags t
+        LEFT JOIN blog_post_tags pt ON t.id = pt.tag_id
+        GROUP BY t.id
+        ORDER BY t.name
+      `)
+      .all();
+
+    return c.json({ tags: tags.results || [] });
+  });
+
+  // ============================================================================
+  // ADMIN ENDPOINTS (Auth + Admin required)
+  // ============================================================================
+
+  // Apply auth middleware to all admin routes
+  adminApp.use('*', verifyAuth, requireAuth, requireAdmin);
+
+  // ============================================================================
+  // ADMIN POSTS API
+  // ============================================================================
+
+  // Get all posts (including drafts) for admin
+  adminApp.get('/posts', async (c) => {
+    const db = c.env.DB;
+    const status = c.req.query('status');
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '10');
+    const offset = (page - 1) * limit;
+
+    let whereClause = '';
+    let params: any[] = [];
+
+    if (status) {
+      whereClause = 'WHERE p.status = ?';
+      params.push(status);
+    }
+
+    const posts = await db
+      .prepare(`
+        SELECT
+          p.*,
+          u.name as author_name,
+          u.email as author_email,
+          GROUP_CONCAT(DISTINCT cat.name) as categories,
+          GROUP_CONCAT(DISTINCT tag.name) as tags
+        FROM blog_posts p
+        LEFT JOIN users u ON p.author_id = u.id
+        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
+        LEFT JOIN blog_categories cat ON pc.category_id = cat.id
+        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
+        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
+        ${whereClause}
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+        LIMIT ? OFFSET ?
+      `)
+      .bind(...params, limit, offset)
+      .all();
+
+    const countResult = await db
+      .prepare(`SELECT COUNT(*) as total FROM blog_posts p ${whereClause}`)
+      .bind(...params)
+      .first();
+
+    return c.json({
+      posts: posts.results || [],
+      pagination: {
+        page,
+        limit,
+        total: (countResult?.total as number) || 0,
+        totalPages: Math.ceil(((countResult?.total as number) || 0) / limit),
+      },
+    });
+  });
+
+  // Get single post by ID for admin (including drafts)
+  adminApp.get('/posts/:id', async (c) => {
+    const db = c.env.DB;
+    const postId = c.req.param('id');
+
+    const post = await db
+      .prepare(`
+        SELECT
+          p.*,
+          u.name as author_name,
+          u.email as author_email
+        FROM blog_posts p
+        LEFT JOIN users u ON p.author_id = u.id
+        WHERE p.id = ?
+      `)
+      .bind(postId)
+      .first();
+
+    if (!post) {
+      return c.json({ error: 'Post not found' }, 404);
+    }
+
+    // Get categories
+    const categories = await db
+      .prepare(`
+        SELECT c.* FROM blog_categories c
+        JOIN blog_post_categories pc ON c.id = pc.category_id
+        WHERE pc.post_id = ?
+      `)
+      .bind(post.id)
+      .all();
+
+    // Get tags
+    const tags = await db
+      .prepare(`
+        SELECT t.* FROM blog_tags t
+        JOIN blog_post_tags pt ON t.id = pt.tag_id
+        WHERE pt.post_id = ?
+      `)
+      .bind(post.id)
+      .all();
+
+    return c.json({
+      ...post,
+      categories: categories.results || [],
+      tags: tags.results || [],
+    });
+  });
+
   // Create new post
-  app.post(
-    '/api/plugins/blog/posts',
+  adminApp.post(
+    '/posts',
     validator('json', (value, c) => {
       if (!value.title || !value.content) {
         return c.json({ error: 'Title and content are required' }, 400);
@@ -247,9 +522,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     async (c) => {
       const db = c.env.DB;
       const data = await c.req.json();
+      const user = (c as any).get('user');
 
-      // For now, use a default user ID (should be from auth middleware in production)
-      const authorId = 1; // TODO: Get from authenticated user
+      // Get author ID from authenticated user
+      const authorId = user?.id || 1;
 
       // Generate slug from title
       const slug = data.slug || generateSlug(data.title);
@@ -318,7 +594,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   );
 
   // Update post
-  app.put('/api/plugins/blog/posts/:id', async (c) => {
+  adminApp.put('/posts/:id', async (c) => {
     const db = c.env.DB;
     const postId = c.req.param('id');
     const data = await c.req.json();
@@ -430,7 +706,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   });
 
   // Delete post
-  app.delete('/api/plugins/blog/posts/:id', async (c) => {
+  adminApp.delete('/posts/:id', async (c) => {
     const db = c.env.DB;
     const postId = c.req.param('id');
 
@@ -444,7 +720,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   });
 
   // Publish post
-  app.patch('/api/plugins/blog/posts/:id/publish', async (c) => {
+  adminApp.patch('/posts/:id/publish', async (c) => {
     const db = c.env.DB;
     const postId = c.req.param('id');
 
@@ -467,10 +743,11 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   });
 
   // ============================================================================
-  // CATEGORIES API
+  // ADMIN CATEGORIES API
   // ============================================================================
 
-  app.get('/api/plugins/blog/categories', async (c) => {
+  // Get all categories (admin)
+  adminApp.get('/categories', async (c) => {
     const db = c.env.DB;
 
     const categories = await db
@@ -490,7 +767,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ categories: categories.results || [] });
   });
 
-  app.post('/api/plugins/blog/categories', async (c) => {
+  adminApp.post('/categories', async (c) => {
     const db = c.env.DB;
     const data = await c.req.json();
 
@@ -518,10 +795,11 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   });
 
   // ============================================================================
-  // TAGS API
+  // ADMIN TAGS API
   // ============================================================================
 
-  app.get('/api/plugins/blog/tags', async (c) => {
+  // Get all tags (admin)
+  adminApp.get('/tags', async (c) => {
     const db = c.env.DB;
 
     const tags = await db
@@ -539,7 +817,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ tags: tags.results || [] });
   });
 
-  app.post('/api/plugins/blog/tags', async (c) => {
+  adminApp.post('/tags', async (c) => {
     const db = c.env.DB;
     const data = await c.req.json();
 
@@ -565,6 +843,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
 
     return c.json(tag, 201);
   });
+
+  // Mount public and admin routes
+  app.route('/blog', publicApp);
+  app.route('/admin/blog', adminApp);
 
   return app;
 }

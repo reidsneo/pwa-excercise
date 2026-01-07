@@ -16,8 +16,8 @@ import { BlogSettings } from './components/BlogSettings';
 
 export const manifest: PluginManifest = {
   // ----- Identity -----
-  id: 'blog/blog' as const,
-  name: 'Blog',
+  id: '550e8400-e29b-41d4-a716-446655440001' as const,
+  name: 'blog',
   description: 'Full-featured blog with posts, categories, and tags',
   version: '1.0.0',
   author: 'System',
