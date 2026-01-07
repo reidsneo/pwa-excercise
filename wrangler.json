@@ -17,8 +17,8 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "sample-worker-neo-db",
-			"database_id": "local"
+			"database_name": "test",
+			"database_id": "d00b08c8-53f0-475b-bbe2-36a3c8b9c917"
 		}
 	],
 	"vars": {
