@@ -1,9 +1,10 @@
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LayoutDashboard, Users, Shield, Settings, BarChart, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Shield, Settings, BarChart, LogOut, Puzzle } from "lucide-react";
 import { AdminUsers } from "@/pages/admin/AdminUsersPage";
 import { AdminRoles } from "@/pages/admin/AdminRolesPage";
+import { AdminPlugins } from "@/pages/admin/AdminPluginsPage";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface MenuItem {
@@ -28,6 +29,12 @@ export function AdminApp() {
 			label: "Roles",
 			icon: Shield,
 			permission: { resource: "roles", action: "view" },
+		},
+		{
+			path: "/admin/plugins",
+			label: "Plugins",
+			icon: Puzzle,
+			permission: { resource: "plugins", action: "view" },
 		},
 		{
 			path: "/admin/analytics",
@@ -105,6 +112,9 @@ export function AdminApp() {
 							)}
 							{hasPermission("roles", "view") && (
 								<Route path="/roles" element={<AdminRoles />} />
+							)}
+							{hasPermission("plugins", "view") && (
+								<Route path="/plugins" element={<AdminPlugins />} />
 							)}
 							{hasPermission("analytics", "view") && (
 								<Route path="/analytics" element={<AdminAnalytics />} />
