@@ -19,6 +19,16 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Edit, Trash2, Eye, FileText, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePluginLicenses } from '@/contexts/PluginLicenseContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface BlogPost {
   id: number;
@@ -42,6 +52,8 @@ export function BlogPostsList() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<BlogPost | null>(null);
 
   useEffect(() => {
     fetchPosts();
@@ -65,14 +77,24 @@ export function BlogPostsList() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
+    const post = posts.find((p) => p.id === id);
+    if (post) {
+      setPostToDelete(post);
+      setShowDeleteDialog(true);
+    }
+  };
+
+  const confirmDeletePost = async () => {
+    if (!postToDelete) return;
 
     try {
-      const response = await fetch(`/api/plugins/blog/posts/${id}`, {
+      const response = await fetch(`/api/plugins/blog/posts/${postToDelete.id}`, {
         method: 'DELETE',
       });
       if (response.ok) {
         fetchPosts();
+        setShowDeleteDialog(false);
+        setPostToDelete(null);
       } else if (response.status === 403) {
         const error = await response.json();
         alert(error.error || 'You do not have access to this feature');
@@ -274,6 +296,24 @@ export function BlogPostsList() {
           </Button>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Blog Post</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the blog post <strong>"{postToDelete?.title}"</strong>? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowDeleteDialog(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeletePost} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

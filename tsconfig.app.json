@@ -25,7 +25,8 @@
 			"@/pages/*": ["./src/react-app/pages/*"],
 			"@/contexts/*": ["./src/react-app/contexts/*"],
 			"@/lib/*": ["./src/react-app/lib/*"],
-			"@/apps/*": ["./src/react-app/apps/*"]
+			"@/apps/*": ["./src/react-app/apps/*"],
+			"@/hooks/*": ["./src/react-app/hooks/*"]
 		},
 
 		/* Linting */

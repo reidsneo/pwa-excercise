@@ -91,6 +91,8 @@ export default defineConfig({
 			"@/lib/*": path.resolve(__dirname, "./src/react-app/lib/*"),
 			"@/apps": path.resolve(__dirname, "./src/react-app/apps"),
 			"@/apps/*": path.resolve(__dirname, "./src/react-app/apps/*"),
+			"@/hooks": path.resolve(__dirname, "./src/react-app/hooks"),
+			"@/hooks/*": path.resolve(__dirname, "./src/react-app/hooks/*"),
 		},
 	},
 });

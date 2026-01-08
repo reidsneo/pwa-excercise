@@ -33,6 +33,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Puzzle,
@@ -107,6 +117,8 @@ interface PluginCardProps {
 }
 
 function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfigure, loading }: PluginCardProps) {
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
   // Type guard to check if manifest is a PluginManifest
   const isPluginManifest = (m: BackendPlugin | PluginManifest): m is PluginManifest => {
     return 'permissions' in m || 'settings' in m || 'routes' in m;
@@ -124,9 +136,12 @@ function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfi
   };
 
   const handleUninstall = async () => {
-    if (confirm(`Are you sure you want to uninstall "${manifest.name}"?`)) {
-      await onUninstall(manifest.id);
-    }
+    setShowDeleteDialog(true);
+  };
+
+  const confirmUninstall = async () => {
+    setShowDeleteDialog(false);
+    await onUninstall(manifest.id);
   };
 
   return (
@@ -197,6 +212,24 @@ function PluginCard({ manifest, state, onEnable, onDisable, onUninstall, onConfi
           </div>
         )}
       </CardContent>
+
+      {/* Uninstall Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Uninstall Plugin</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to uninstall <strong>"{manifest.name}"</strong>? This will remove all plugin data from the database. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowDeleteDialog(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUninstall} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Uninstall
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -355,11 +388,11 @@ function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplacePr
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold">Plugin Marketplace</h3>
-          <p className="text-muted-foreground">
-            Browse and purchase plugins from the marketplace
+          <p className="text-sm text-muted-foreground">
+            Browse and install plugins to extend functionality
           </p>
         </div>
       </div>
@@ -369,164 +402,252 @@ function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplacePr
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {pluginsToShow.map((plugin) => (
-            <Card key={plugin.id} className="flex flex-col">
-              <CardHeader>
-                <div className="flex items-start gap-3">
-                  {plugin.icon && (
-                    <div className="text-3xl">{plugin.icon}</div>
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-lg">{plugin.name}</CardTitle>
-                      {plugin.featured === 1 && (
-                        <Badge variant="secondary" className="text-xs">
-                          Featured
-                        </Badge>
-                      )}
-                    </div>
-                    <CardDescription className="mt-1 line-clamp-2">
-                      {plugin.description}
-                    </CardDescription>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span>v{plugin.version}</span>
-                      <span>by {plugin.author}</span>
-                      {plugin.category && (
-                        <Badge variant="outline" className="text-xs">
-                          {plugin.category}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col">
-                <div className="flex-1">
-                  <p className="text-sm font-semibold mb-2">Pricing Plans:</p>
-                  <div className="space-y-2">
-                    {plugin.tiers.map((tier) => (
-                      <div key={tier.tier_id} className="p-2 bg-muted rounded text-sm">
-                        <div className="font-medium">{tier.name}</div>
-                        <div className="flex gap-3 text-xs text-muted-foreground mt-1">
-                          {tier.price_monthly && <span>Mo: {formatPrice(tier.price_monthly)}</span>}
-                          {tier.price_yearly && <span>Yr: {formatPrice(tier.price_yearly)}</span>}
-                          {tier.price_lifetime && <span>Life: {formatPrice(tier.price_lifetime)}</span>}
-                          {tier.price_monthly === null && tier.price_yearly === null && tier.price_lifetime === null && (
-                            <span>Free</span>
-                          )}
-                        </div>
-                        {tier.trial_days > 0 && (
-                          <div className="text-xs text-blue-600 mt-1">{tier.trial_days} days trial</div>
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+          {pluginsToShow.map((plugin) => {
+            const isFree = plugin.tiers.length === 1 && plugin.tiers[0].price_monthly === 0;
+            const hasPricing = plugin.tiers.length > 0;
+
+            return (
+              <Card key={plugin.id} className="flex flex-col overflow-hidden hover:shadow-lg transition-shadow">
+                <CardHeader className="pb-4">
+                  <div className="flex items-start gap-3">
+                    {plugin.icon && (
+                      <div className="text-3xl flex-shrink-0">{plugin.icon}</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CardTitle className="text-lg">{plugin.name}</CardTitle>
+                        {plugin.featured === 1 && (
+                          <Badge variant="secondary" className="text-xs">
+                            Featured
+                          </Badge>
+                        )}
+                        {isFree && (
+                          <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
+                            Free
+                          </Badge>
                         )}
                       </div>
-                    ))}
+                      <CardDescription className="mt-1 line-clamp-2 text-sm">
+                        {plugin.description}
+                      </CardDescription>
+                      <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <span className="font-medium">v{plugin.version}</span>
+                        <span>•</span>
+                        <span>by {plugin.author}</span>
+                        {plugin.category && (
+                          <>
+                            <span>•</span>
+                            <Badge variant="outline" className="text-xs font-normal">
+                              {plugin.category}
+                            </Badge>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setSelectedPlugin(plugin)}
-                  >
-                    View Details
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => onInstall(plugin.id)}
-                    disabled={loadingPluginId === plugin.id}
-                  >
-                    {loadingPluginId === plugin.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Installing...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 mr-2" />
-                        Install
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardHeader>
+
+                <CardContent className="flex-1 flex flex-col pt-0 px-6 pb-6">
+                  {hasPricing && (
+                    <div className="mb-4">
+                      <p className="text-sm font-semibold mb-2 text-muted-foreground">
+                        {plugin.tiers.length === 1 ? 'Plan' : 'Pricing Plans'}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {plugin.tiers.slice(0, 3).map((tier) => {
+                          const isFreeTier = tier.price_monthly === 0 && tier.price_yearly === null && tier.price_lifetime === null;
+                          return (
+                            <Badge
+                              key={tier.tier_id}
+                              variant={isFreeTier ? "default" : "outline"}
+                              className="text-xs"
+                            >
+                              {tier.name}
+                              {!isFreeTier && (
+                                <span className="ml-1">
+                                  {tier.price_lifetime ? ` (${formatPrice(tier.price_lifetime)})` :
+                                   tier.price_yearly ? ` (${formatPrice(tier.price_yearly)}/yr)` :
+                                   tier.price_monthly ? ` (${formatPrice(tier.price_monthly)}/mo)` : ''}
+                                </span>
+                              )}
+                            </Badge>
+                          );
+                        })}
+                        {plugin.tiers.length > 3 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{plugin.tiers.length - 3} more
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-auto flex flex-col sm:flex-row gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setSelectedPlugin(plugin)}
+                    >
+                      View Details
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => onInstall(plugin.id)}
+                      disabled={loadingPluginId === plugin.id}
+                    >
+                      {loadingPluginId === plugin.id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Installing...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 mr-2" />
+                          Install
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
       {pluginsToShow.length === 0 && !loading && (
-        <div className="text-center py-12">
-          <Download className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">No plugins available in the marketplace</p>
-        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-12">
+              <Download className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Plugins Available</h3>
+              <p className="text-muted-foreground">
+                All available plugins are already installed.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Plugin Details Dialog */}
       <Dialog open={selectedPlugin !== null} onOpenChange={() => setSelectedPlugin(null)}>
-        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center gap-3">
+            <div className="flex items-start gap-3">
               {selectedPlugin?.icon && (
-                <div className="text-4xl">{selectedPlugin.icon}</div>
+                <div className="text-4xl flex-shrink-0">{selectedPlugin.icon}</div>
               )}
-              <div>
-                <DialogTitle className="text-2xl">{selectedPlugin?.name}</DialogTitle>
+              <div className="flex-1 min-w-0">
+                <DialogTitle className="text-2xl pr-8">{selectedPlugin?.name}</DialogTitle>
                 <DialogDescription className="mt-1">
                   {selectedPlugin?.description}
                 </DialogDescription>
+                <div className="flex flex-wrap items-center gap-2 mt-3 text-sm text-muted-foreground">
+                  <span>Version {selectedPlugin?.version}</span>
+                  <span>•</span>
+                  <span>by {selectedPlugin?.author}</span>
+                  {selectedPlugin?.category && (
+                    <>
+                      <span>•</span>
+                      <Badge variant="outline" className="text-xs font-normal">
+                        {selectedPlugin.category}
+                      </Badge>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+
+          <div className="py-4 space-y-6">
             {selectedPlugin?.tiers && selectedPlugin.tiers.length > 0 && (
               <div>
-                <h4 className="font-semibold mb-3">Choose Your Plan</h4>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {selectedPlugin.tiers.map((tier) => (
-                    <Card key={tier.tier_id} className="relative">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base">{tier.name}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div>
-                          <div className="text-2xl font-bold">
-                            {tier.price_monthly === null && tier.price_yearly === null && tier.price_lifetime === null
-                              ? 'Free'
-                              : formatPrice(tier.price_monthly || tier.price_yearly || tier.price_lifetime)}
+                <h4 className="font-semibold mb-4 text-base">
+                  {selectedPlugin.tiers.length === 1 ? 'Available Plan' : 'Choose Your Plan'}
+                </h4>
+                <div className="grid gap-4 grid-cols-1">
+                  {selectedPlugin.tiers.map((tier) => {
+                    const isFree = tier.price_monthly === 0 && tier.price_yearly === null && tier.price_lifetime === null;
+                    const hasTrial = tier.trial_days > 0;
+
+                    return (
+                      <Card key={tier.tier_id} className={isFree ? 'border-green-200 bg-green-50/50' : ''}>
+                        <CardContent className="p-4">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                            <div className="flex-1 space-y-3">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <h5 className="font-semibold text-base flex items-center gap-2">
+                                    {tier.name}
+                                    {isFree && (
+                                      <Badge className="bg-green-600 hover:bg-green-700">Free</Badge>
+                                    )}
+                                    {hasTrial && (
+                                      <Badge variant="secondary">{tier.trial_days}-day trial</Badge>
+                                    )}
+                                  </h5>
+                                  <div className="mt-1">
+                                    {isFree ? (
+                                      <span className="text-2xl font-bold text-green-700">Free</span>
+                                    ) : (
+                                      <div className="flex items-baseline gap-2">
+                                        <span className="text-2xl font-bold">
+                                          {formatPrice(tier.price_monthly || tier.price_yearly || tier.price_lifetime)}
+                                        </span>
+                                        <span className="text-sm text-muted-foreground">
+                                          {tier.price_monthly ? '/month' : tier.price_yearly ? '/year' : 'one-time'}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="text-sm font-medium mb-2">Features:</p>
+                                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                                  {tier.features.map((feature, idx) => (
+                                    <li key={idx} className="text-sm flex items-start gap-2">
+                                      <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                                      <span className="text-muted-foreground">{feature}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+
+                            <div className="sm:w-32 flex-shrink-0">
+                              <Button
+                                className="w-full"
+                                size="sm"
+                                onClick={() => {
+                                  onInstall(selectedPlugin.id);
+                                  setSelectedPlugin(null);
+                                }}
+                                disabled={loadingPluginId === selectedPlugin.id}
+                              >
+                                {loadingPluginId === selectedPlugin.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : isFree ? (
+                                  <>Install Free</>
+                                ) : (
+                                  <>Select Plan</>
+                                )}
+                              </Button>
+                            </div>
                           </div>
-                          {tier.price_monthly && <div className="text-xs text-muted-foreground">per month</div>}
-                          {tier.price_yearly && <div className="text-xs text-muted-foreground">per year</div>}
-                          {tier.price_lifetime && <div className="text-xs text-muted-foreground">one-time</div>}
-                        </div>
-                        {tier.trial_days > 0 && (
-                          <Badge variant="secondary" className="text-xs">
-                            {tier.trial_days}-day trial
-                          </Badge>
-                        )}
-                        <div>
-                          <p className="text-sm font-medium mb-2">Features:</p>
-                          <ul className="space-y-1">
-                            {tier.features.map((feature, idx) => (
-                              <li key={idx} className="text-sm flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
-                                <span>{feature}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <Button className="w-full" size="sm">
-                          Select {tier.name}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedPlugin(null)}>
               Close
@@ -693,10 +814,6 @@ export function AdminPlugins() {
   };
 
   const handleUninstall = async (id: string) => {
-    if (!confirm(`Are you sure you want to uninstall? This will remove all plugin data from the database.`)) {
-      return;
-    }
-
     setLoading(id);
     try {
       const response = await fetch(`/api/plugins/uninstall`, {

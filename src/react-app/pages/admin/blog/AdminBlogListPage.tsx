@@ -12,6 +12,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Plus, Edit, Trash2, Eye, Calendar, FileText } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface BlogPost {
   id: number;
@@ -54,6 +64,8 @@ export function AdminBlogListPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<BlogPost | null>(null);
 
   const fetchPosts = async (page: number = 1) => {
     try {
@@ -91,15 +103,27 @@ export function AdminBlogListPage() {
   }, [statusFilter]);
 
   const handleDelete = async (id: number) => {
+    const post = posts.find((p) => p.id === id);
+    if (post) {
+      setPostToDelete(post);
+      setShowDeleteDialog(true);
+    }
+  };
+
+  const confirmDeletePost = async () => {
+    if (!postToDelete) return;
+
     try {
-      setDeletingId(id);
-      const response = await fetch(`/admin/blog/posts/${id}`, {
+      setDeletingId(postToDelete.id);
+      const response = await fetch(`/admin/blog/posts/${postToDelete.id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
 
       if (response.ok) {
-        setPosts(posts.filter((post) => post.id !== id));
+        setPosts(posts.filter((post) => post.id !== postToDelete!.id));
+        setShowDeleteDialog(false);
+        setPostToDelete(null);
       } else {
         console.error('Failed to delete post');
       }
@@ -259,11 +283,7 @@ export function AdminBlogListPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            if (window.confirm(`Are you sure you want to delete "${post.title}"? This action cannot be undone.`)) {
-                              handleDelete(post.id);
-                            }
-                          }}
+                          onClick={() => handleDelete(post.id)}
                           disabled={deletingId === post.id}
                         >
                           <Trash2 className="w-4 h-4 text-destructive" />
@@ -312,6 +332,24 @@ export function AdminBlogListPage() {
           </Button>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Blog Post</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the blog post <strong>"{postToDelete?.title}"</strong>? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowDeleteDialog(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeletePost} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

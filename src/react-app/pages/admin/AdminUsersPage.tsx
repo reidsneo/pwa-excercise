@@ -4,7 +4,33 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, MoreHorizontal, Search, Filter, Check, ChevronsUpDown, ArrowUpDown } from "lucide-react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface User {
 	id: number;
@@ -30,6 +56,8 @@ export function AdminUsers() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [showCreateModal, setShowCreateModal] = useState(false);
 	const [showEditModal, setShowEditModal] = useState(false);
+	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+	const [userToDelete, setUserToDelete] = useState<User | null>(null);
 	const [selectedUser, setSelectedUser] = useState<User | null>(null);
 	const [formData, setFormData] = useState({
 		name: "",
@@ -37,6 +65,126 @@ export function AdminUsers() {
 		password: "",
 		roleId: "",
 	});
+
+	// Filter states
+	const [searchQuery, setSearchQuery] = useState("");
+	const [selectedRole, setSelectedRole] = useState<string>("all");
+	const [selectedStatus, setSelectedStatus] = useState<string>("all");
+
+	// Multi-select state
+	const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+	const [isAllSelected, setIsAllSelected] = useState(false);
+
+	// Sorting state
+	const [sortColumn, setSortColumn] = useState<"name" | "email" | "role" | null>(null);
+	const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+	// Filter and sort users
+	const filteredAndSortedUsers = users.filter((user) => {
+		const matchesSearch =
+			searchQuery === "" ||
+			user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			user.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+		const matchesRole =
+			selectedRole === "all" ||
+			(selectedRole === "none" && !user.role) ||
+			user.role?.name === selectedRole;
+
+		// For now, all users are considered "active" since we don't have a status field
+		const matchesStatus =
+			selectedStatus === "all" || selectedStatus === "active";
+
+		return matchesSearch && matchesRole && matchesStatus;
+	}).sort((a, b) => {
+		if (!sortColumn) return 0;
+
+		let aVal: string;
+		let bVal: string;
+
+		switch (sortColumn) {
+			case "name":
+				aVal = a.name;
+				bVal = b.name;
+				break;
+			case "email":
+				aVal = a.email;
+				bVal = b.email;
+				break;
+			case "role":
+				aVal = a.role?.name || "";
+				bVal = b.role?.name || "";
+				break;
+			default:
+				return 0;
+		}
+
+		if (sortDirection === "asc") {
+			return aVal.localeCompare(bVal);
+		} else {
+			return bVal.localeCompare(aVal);
+		}
+	});
+
+	// Toggle user selection
+	const toggleUserSelection = (userId: number) => {
+		const newSelection = new Set(selectedUserIds);
+		if (newSelection.has(userId)) {
+			newSelection.delete(userId);
+		} else {
+			newSelection.add(userId);
+		}
+		setSelectedUserIds(newSelection);
+	};
+
+	// Toggle all users selection
+	const toggleAllUsers = () => {
+		if (isAllSelected) {
+			setSelectedUserIds(new Set());
+			setIsAllSelected(false);
+		} else {
+			setSelectedUserIds(new Set(filteredAndSortedUsers.map(u => u.id)));
+			setIsAllSelected(true);
+		}
+	};
+
+	// Handle column sort
+	const handleSort = (column: "name" | "email" | "role") => {
+		if (sortColumn === column) {
+			setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+		} else {
+			setSortColumn(column);
+			setSortDirection("asc");
+		}
+	};
+
+	// Bulk delete users
+	const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+
+	const handleBulkDelete = async () => {
+		setIsLoading(true);
+		try {
+			await Promise.all(
+				Array.from(selectedUserIds).map((userId) =>
+					fetch(`/api/admin/users/${userId}`, {
+						method: "DELETE",
+						headers: {
+							Authorization: `Bearer ${token}`,
+						},
+					})
+				)
+			);
+
+			setSelectedUserIds(new Set());
+			setIsAllSelected(false);
+			setShowBulkDeleteDialog(false);
+			await fetchUsers();
+		} catch (error) {
+			console.error("Failed to delete users:", error);
+		} finally {
+			setIsLoading(false);
+		}
+	};
 
 	const fetchUsers = async () => {
 		try {
@@ -144,10 +292,15 @@ export function AdminUsers() {
 	};
 
 	const handleDeleteUser = async (userId: number) => {
-		if (!confirm("Are you sure you want to delete this user?")) return;
+		setUserToDelete(users.find((u) => u.id === userId) || null);
+		setShowDeleteDialog(true);
+	};
+
+	const confirmDeleteUser = async () => {
+		if (!userToDelete) return;
 
 		try {
-			const response = await fetch(`/api/admin/users/${userId}`, {
+			const response = await fetch(`/api/admin/users/${userToDelete.id}`, {
 				method: "DELETE",
 				headers: {
 					Authorization: `Bearer ${token}`,
@@ -156,6 +309,8 @@ export function AdminUsers() {
 
 			if (response.ok) {
 				await fetchUsers();
+				setShowDeleteDialog(false);
+				setUserToDelete(null);
 			} else {
 				const error = await response.json();
 				alert(error.error || "Failed to delete user");
@@ -186,72 +341,252 @@ export function AdminUsers() {
 	}
 
 	return (
-		<div className="space-y-6">
-			<div className="flex items-center justify-between">
+		<div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+			<div className="flex flex-wrap items-end justify-between gap-2">
 				<div>
-					<h2 className="text-3xl font-bold">User Management</h2>
-					<p className="text-muted-foreground">Manage user accounts and permissions</p>
+					<h2 className="text-2xl font-bold tracking-tight">User List</h2>
+					<p className="text-muted-foreground">Manage your users and their roles here.</p>
 				</div>
-				<Button onClick={() => setShowCreateModal(true)}>
-					<Plus className="w-4 h-4 mr-2" />
-					Add User
-				</Button>
+				<div className="flex gap-2">
+					<Button
+						variant="outline"
+						onClick={() => setShowCreateModal(true)}
+					>
+						<Plus className="w-4 h-4 mr-2" />
+						Add User
+					</Button>
+				</div>
 			</div>
 
-			<Card>
-				<CardContent className="p-0">
-					<div className="overflow-x-auto">
-						<table className="w-full">
-							<thead>
-								<tr className="border-b bg-muted/50">
-									<th className="p-4 text-left font-medium">Name</th>
-									<th className="p-4 text-left font-medium">Email</th>
-									<th className="p-4 text-left font-medium">Role</th>
-									<th className="p-4 text-left font-medium">Actions</th>
-								</tr>
-							</thead>
-							<tbody>
-								{users.map((user) => (
-									<tr key={user.id} className="border-b hover:bg-muted/30">
-										<td className="p-4">{user.name}</td>
-										<td className="p-4">{user.email}</td>
-										<td className="p-4">
-											<span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary">
-												{user.role?.name || "No role"}
-											</span>
-										</td>
-										<td className="p-4">
-											<div className="flex gap-2">
-												<Button
-													size="sm"
-													variant="outline"
-													onClick={() => openEditModal(user)}
-												>
-													<Pencil className="w-3 h-3" />
-												</Button>
-												<Button
-													size="sm"
-													variant="outline"
-													onClick={() => handleDeleteUser(user.id)}
-												>
-													<Trash2 className="w-3 h-3 text-destructive" />
-												</Button>
-											</div>
-										</td>
-									</tr>
-								))}
-								{users.length === 0 && (
-									<tr>
-										<td colSpan={4} className="p-8 text-center text-muted-foreground">
-											No users found. Create your first user to get started.
-										</td>
-									</tr>
-								)}
-							</tbody>
-						</table>
+			<div className="flex flex-1 flex-col gap-4">
+				{/* Toolbar */}
+				<div className="flex items-center justify-between">
+					<div className="flex flex-1 flex-col-reverse items-start gap-y-2 sm:flex-row sm:items-center sm:space-x-2">
+						<div className="relative">
+							<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+							<Input
+								placeholder="Filter users..."
+								value={searchQuery}
+								onChange={(e) => setSearchQuery(e.target.value)}
+								className="h-8 w-[150px] lg:w-[250px] pl-8"
+							/>
+						</div>
+						<div className="flex gap-x-2">
+							{/* Status filter */}
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button variant="outline" size="sm" className="h-8 border-dashed">
+										<Filter className="mr-2 h-4 w-4" />
+										Status
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="start">
+									<DropdownMenuItem onClick={() => setSelectedStatus("all")}>
+										All Status
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setSelectedStatus("active")}>
+										Active
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+							{/* Role filter */}
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button variant="outline" size="sm" className="h-8 border-dashed">
+										<Filter className="mr-2 h-4 w-4" />
+										Role
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="start">
+									<DropdownMenuItem onClick={() => setSelectedRole("all")}>
+										All Roles
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setSelectedRole("none")}>
+										No Role
+									</DropdownMenuItem>
+									<DropdownMenuSeparator />
+									{roles.map((role) => (
+										<DropdownMenuItem key={role.id} onClick={() => setSelectedRole(role.name)}>
+											{role.name}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
 					</div>
-				</CardContent>
-			</Card>
+					{/* Clear filters button */}
+					{(searchQuery || selectedRole !== "all" || selectedStatus !== "all") && (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-8"
+							onClick={() => {
+								setSearchQuery("");
+								setSelectedRole("all");
+								setSelectedStatus("all");
+							}}
+						>
+							Clear
+						</Button>
+					)}
+				</div>
+
+				{/* Results count and bulk actions */}
+				<div className="flex items-center justify-between">
+					<div className="text-sm text-muted-foreground">
+						{filteredAndSortedUsers.length} {filteredAndSortedUsers.length === 1 ? "user" : "users"} found
+					</div>
+
+					{/* Bulk actions bar */}
+					{selectedUserIds.size > 0 && (
+						<div className="flex items-center gap-2">
+							<span className="text-sm text-muted-foreground">
+								{selectedUserIds.size} {selectedUserIds.size === 1 ? "user" : "users"} selected
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8"
+								onClick={() => {
+									setSelectedUserIds(new Set());
+									setIsAllSelected(false);
+								}}
+							>
+								Clear selection
+							</Button>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button variant="outline" size="sm" className="h-8">
+										Bulk Actions
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem onClick={() => setShowBulkDeleteDialog(true)} className="text-destructive">
+										<Trash2 className="mr-2 h-4 w-4" />
+										Delete {selectedUserIds.size} {selectedUserIds.size === 1 ? "user" : "users"}
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
+					)}
+				</div>
+
+				{/* Table */}
+				<div className="overflow-hidden rounded-md border">
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead className="w-12">
+									<Checkbox
+										checked={isAllSelected && filteredAndSortedUsers.length > 0}
+										onCheckedChange={toggleAllUsers}
+										aria-label="Select all users"
+									/>
+								</TableHead>
+								<TableHead>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="-ml-3 h-8 data-[state=open]:bg-accent"
+										onClick={() => handleSort("name")}
+									>
+										Name
+										{sortColumn === "name" && (
+											<ArrowUpDown className="ml-2 h-4 w-4" />
+										)}
+									</Button>
+								</TableHead>
+								<TableHead>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="-ml-3 h-8 data-[state=open]:bg-accent"
+										onClick={() => handleSort("email")}
+									>
+										Email
+										{sortColumn === "email" && (
+											<ArrowUpDown className="ml-2 h-4 w-4" />
+										)}
+									</Button>
+								</TableHead>
+								<TableHead>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="-ml-3 h-8 data-[state=open]:bg-accent"
+										onClick={() => handleSort("role")}
+									>
+										Role
+										{sortColumn === "role" && (
+											<ArrowUpDown className="ml-2 h-4 w-4" />
+										)}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right">Actions</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{filteredAndSortedUsers.map((user) => (
+								<TableRow key={user.id}>
+									<TableCell>
+										<Checkbox
+											checked={selectedUserIds.has(user.id)}
+											onCheckedChange={() => toggleUserSelection(user.id)}
+											aria-label={`Select ${user.name}`}
+										/>
+									</TableCell>
+									<TableCell className="font-medium">{user.name}</TableCell>
+									<TableCell>{user.email}</TableCell>
+									<TableCell>
+										{user.role?.name ? (
+											<span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/80">
+												{user.role.name}
+											</span>
+										) : (
+											<span className="text-muted-foreground">No role</span>
+										)}
+									</TableCell>
+									<TableCell className="text-right">
+										<DropdownMenu>
+											<DropdownMenuTrigger asChild>
+												<Button variant="ghost" className="h-8 w-8 p-0">
+													<span className="sr-only">Open menu</span>
+													<MoreHorizontal className="h-4 w-4" />
+												</Button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent align="end">
+												<DropdownMenuItem onClick={() => openEditModal(user)}>
+													<Pencil className="mr-2 h-4 w-4" />
+													Edit
+												</DropdownMenuItem>
+												<DropdownMenuSeparator />
+												<DropdownMenuItem
+													onClick={() => handleDeleteUser(user.id)}
+													className="text-destructive focus:text-destructive"
+												>
+													<Trash2 className="mr-2 h-4 w-4" />
+													Delete
+												</DropdownMenuItem>
+											</DropdownMenuContent>
+										</DropdownMenu>
+									</TableCell>
+								</TableRow>
+							))}
+							{filteredAndSortedUsers.length === 0 && (
+								<TableRow>
+									<TableCell colSpan={5} className="h-24 text-center">
+										{users.length === 0 ? (
+											"No users found. Create your first user to get started."
+										) : (
+											"No users match your filters."
+										)}
+									</TableCell>
+								</TableRow>
+							)}
+						</TableBody>
+					</Table>
+				</div>
+			</div>
 
 			{/* Create User Modal */}
 			{showCreateModal && (
@@ -391,6 +726,42 @@ export function AdminUsers() {
 					</Card>
 				</div>
 			)}
+
+			{/* Delete Confirmation Dialog */}
+			<AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete User</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete the user <strong>"{userToDelete?.name}"</strong> ({userToDelete?.email})? This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel onClick={() => setShowDeleteDialog(false)}>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={confirmDeleteUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+
+			{/* Bulk Delete Confirmation Dialog */}
+			<AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete Users</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete <strong>{selectedUserIds.size} users</strong>? This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel onClick={() => setShowBulkDeleteDialog(false)}>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

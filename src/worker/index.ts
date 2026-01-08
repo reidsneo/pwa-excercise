@@ -1343,53 +1343,13 @@ app.post("/api/initialize", async (c) => {
 				?,
 				'free',
 				'Blog Free',
-				'["posts.view", "posts.create", "posts.edit", "categories.view", "tags.view"]',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
 				0,
 				NULL,
 				NULL,
 				0
-			),
-			(
-				?,
-				'trial',
-				'Blog Trial',
-				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage"]',
-				NULL,
-				NULL,
-				NULL,
-				14
-			),
-			(
-				?,
-				'monthly',
-				'Blog Pro Monthly',
-				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
-				999,
-				NULL,
-				NULL,
-				0
-			),
-			(
-				?,
-				'yearly',
-				'Blog Pro Yearly',
-				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
-				NULL,
-				9999,
-				NULL,
-				0
-			),
-			(
-				?,
-				'lifetime',
-				'Blog Lifetime',
-				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
-				NULL,
-				NULL,
-				49999,
-				0
 			)
-		`).bind(blogPluginId, blogPluginId, blogPluginId, blogPluginId, blogPluginId).run();
+		`).bind(blogPluginId).run();
 
 		// Step 4: Register and enable blog plugin with migrations
 		console.log('[Initialize] Registering and enabling blog plugin...');

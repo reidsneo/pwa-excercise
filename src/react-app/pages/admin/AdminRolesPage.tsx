@@ -5,6 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2, Plus, Pencil, Trash2, Shield, ShieldCheck, ShieldAlert } from "lucide-react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Role {
 	id: number;
@@ -29,6 +39,8 @@ export function AdminRoles() {
 	const [showCreateModal, setShowCreateModal] = useState(false);
 	const [showEditModal, setShowEditModal] = useState(false);
 	const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+	const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
 	const [selectedRole, setSelectedRole] = useState<Role | null>(null);
 	const [formData, setFormData] = useState({
 		name: "",
@@ -174,10 +186,15 @@ export function AdminRoles() {
 	};
 
 	const handleDeleteRole = async (roleId: number) => {
-		if (!confirm("Are you sure you want to delete this role?")) return;
+		setRoleToDelete(roles.find((r) => r.id === roleId) || null);
+		setShowDeleteDialog(true);
+	};
+
+	const confirmDeleteRole = async () => {
+		if (!roleToDelete) return;
 
 		try {
-			const response = await fetch(`/api/admin/roles/${roleId}`, {
+			const response = await fetch(`/api/admin/roles/${roleToDelete.id}`, {
 				method: "DELETE",
 				headers: {
 					Authorization: `Bearer ${token}`,
@@ -186,6 +203,8 @@ export function AdminRoles() {
 
 			if (response.ok) {
 				await fetchRoles();
+				setShowDeleteDialog(false);
+				setRoleToDelete(null);
 			} else {
 				const error = await response.json();
 				alert(error.error || "Failed to delete role");
@@ -530,6 +549,24 @@ export function AdminRoles() {
 					</Card>
 				</div>
 			)}
+
+			{/* Delete Confirmation Dialog */}
+			<AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete Role</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete the role <strong>"{roleToDelete?.name}"</strong>? This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel onClick={() => setShowDeleteDialog(false)}>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={confirmDeleteRole} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

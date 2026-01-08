@@ -4,129 +4,144 @@
 
 @layer base {
   :root {
-    --background: 204 12.1951% 91.9608%;
-    --foreground: 0 0% 20%;
+    --radius: 0.625rem;
+    /* shadcn-admin theme converted to HSL for Tailwind v3 compatibility */
+    --background: 0 0% 100%;
+    --foreground: 264.695 42% 12.9%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 20%;
+    --card-foreground: 264.695 42% 12.9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 20%;
-    --primary: 13.2143 73.0435% 54.902%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 14.2857% 95.8824%;
-    --secondary-foreground: 215 13.7931% 34.1176%;
-    --muted: 210 20% 98.0392%;
-    --muted-foreground: 220 8.9362% 46.0784%;
-    --accent: 207.6923 46.4286% 89.0196%;
-    --accent-foreground: 224.4444 64.2857% 32.9412%;
-    --destructive: 0 84.2365% 60.1961%;
+    --popover-foreground: 264.695 42% 12.9%;
+    --primary: 265.755 42% 20.8%;
+    --primary-foreground: 247.858 3% 98.4%;
+    --secondary: 247.896 7% 96.8%;
+    --secondary-foreground: 265.755 42% 20.8%;
+    --muted: 247.896 7% 96.8%;
+    --muted-foreground: 257.417 46% 55.4%;
+    --accent: 247.896 7% 96.8%;
+    --accent-foreground: 265.755 42% 20.8%;
+    --destructive: 27.325 245% 57.7%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 9.375% 87.451%;
-    --input: 220 15.7895% 96.2745%;
-    --ring: 13.2143 73.0435% 54.902%;
-    --chart-1: 210 37.5% 65.4902%;
-    --chart-2: 12.9032 73.2283% 75.098%;
-    --chart-3: 213.1579 29.9213% 50.1961%;
-    --chart-4: 216.9231 35.7798% 42.7451%;
-    --chart-5: 221.0127 43.6464% 35.4902%;
-    --sidebar: 216 7.9365% 87.6471%;
-    --sidebar-foreground: 0 0% 20%;
-    --sidebar-primary: 13.2143 73.0435% 54.902%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 207.6923 46.4286% 89.0196%;
-    --sidebar-accent-foreground: 224.4444 64.2857% 32.9412%;
-    --sidebar-border: 220 13.0435% 90.9804%;
-    --sidebar-ring: 13.2143 73.0435% 54.902%;
+    --border: 255.508 13% 92.9%;
+    --input: 255.508 13% 92.9%;
+    --ring: 256.788 40% 70.4%;
+    --chart-1: 41.116 222% 64.6%;
+    --chart-2: 184.704 118% 60%;
+    --chart-3: 227.392 7% 39.8%;
+    --chart-4: 84.429 189% 82.8%;
+    --chart-5: 70.08 188% 76.9%;
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
     --font-sans: Inter, sans-serif;
     --font-serif: Source Serif 4, serif;
     --font-mono: JetBrains Mono, monospace;
-    --radius: 0.75rem;
-    --shadow-x: 0px;
-    --shadow-y: 1px;
-    --shadow-blur: 3px;
-    --shadow-spread: 0px;
-    --shadow-opacity: 0.1;
-    --shadow-color: hsl(0 0% 0%);
-    --shadow-2xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
-    --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
-    --shadow-sm: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 1px 2px -1px hsl(0 0% 0% / 0.1);
-    --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 1px 2px -1px hsl(0 0% 0% / 0.1);
-    --shadow-md: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 2px 4px -1px hsl(0 0% 0% / 0.1);
-    --shadow-lg: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 4px 6px -1px hsl(0 0% 0% / 0.1);
-    --shadow-xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 8px 10px -1px hsl(0 0% 0% / 0.1);
-    --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.25);
-    --tracking-normal: 0em;
-    --spacing: 0.25rem;
   }
 
   .dark {
-    --background: 219.1304 29.1139% 15.4902%;
-    --foreground: 0 0% 89.8039%;
-    --card: 223.6364 20.7547% 20.7843%;
-    --card-foreground: 0 0% 89.8039%;
-    --popover: 223.3333 19.1489% 18.4314%;
-    --popover-foreground: 0 0% 89.8039%;
-    --primary: 231.1628 67.5393% 62.549%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 222 19.2308% 20.3922%;
-    --secondary-foreground: 0 0% 89.8039%;
-    --muted: 222 19.2308% 20.3922%;
-    --muted-foreground: 0 0% 63.9216%;
-    --accent: 223.6364 34.375% 25.098%;
-    --accent-foreground: 213.3333 96.9231% 87.2549%;
-    --destructive: 0 84.2365% 60.1961%;
+    --background: 264.695 42% 12.9%;
+    --foreground: 247.858 3% 98.4%;
+    --card: 259.21 40% 14%;
+    --card-foreground: 247.858 3% 98.4%;
+    --popover: 265.755 42% 20.8%;
+    --popover-foreground: 247.858 3% 98.4%;
+    --primary: 255.508 13% 92.9%;
+    --primary-foreground: 265.755 42% 20.8%;
+    --secondary: 260.031 41% 27.9%;
+    --secondary-foreground: 247.858 3% 98.4%;
+    --muted: 260.031 41% 27.9%;
+    --muted-foreground: 256.788 40% 70.4%;
+    --accent: 260.031 41% 27.9%;
+    --accent-foreground: 247.858 3% 98.4%;
+    --destructive: 22.216 191% 70.4%;
     --destructive-foreground: 0 0% 100%;
-    --border: 224.3478 15.8621% 28.4314%;
-    --input: 224.3478 15.8621% 28.4314%;
-    --ring: 13.2143 73.0435% 54.902%;
-    --chart-1: 210 37.5% 65.4902%;
-    --chart-2: 11.7241 63.5036% 73.1373%;
-    --chart-3: 213.1579 29.9213% 50.1961%;
-    --chart-4: 216.9231 35.7798% 42.7451%;
-    --chart-5: 221.0127 43.6464% 35.4902%;
-    --sidebar: 222.8571 20% 20.5882%;
-    --sidebar-foreground: 0 0% 89.8039%;
-    --sidebar-primary: 13.2143 73.0435% 54.902%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 223.6364 34.375% 25.098%;
-    --sidebar-accent-foreground: 213.3333 96.9231% 87.2549%;
-    --sidebar-border: 224.3478 15.8621% 28.4314%;
-    --sidebar-ring: 13.2143 73.0435% 54.902%;
-    --font-sans: Inter, sans-serif;
-    --font-serif: Source Serif 4, serif;
-    --font-mono: JetBrains Mono, monospace;
-    --radius: 0.75rem;
-    --shadow-x: 0px;
-    --shadow-y: 1px;
-    --shadow-blur: 3px;
-    --shadow-spread: 0px;
-    --shadow-opacity: 0.1;
-    --shadow-color: hsl(0 0% 0%);
-    --shadow-2xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
-    --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
-    --shadow-sm: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 1px 2px -1px hsl(0 0% 0% / 0.1);
-    --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 1px 2px -1px hsl(0 0% 0% / 0.1);
-    --shadow-md: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 2px 4px -1px hsl(0 0% 0% / 0.1);
-    --shadow-lg: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 4px 6px -1px hsl(0 0% 0% / 0.1);
-    --shadow-xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.1),
-      0px 8px 10px -1px hsl(0 0% 0% / 0.1);
-    --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.25);
+    --border: 0 0% 100% / 10%;
+    --input: 0 0% 100% / 15%;
+    --ring: 264.364 27% 55.1%;
+    --chart-1: 264.376 243% 48.8%;
+    --chart-2: 162.48 17% 69.6%;
+    --chart-3: 70.08 188% 76.9%;
+    --chart-4: 303.9 265% 62.7%;
+    --chart-5: 16.439 246% 64.5%;
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
   }
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
   }
+
+  html {
+    @apply overflow-x-hidden;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply min-h-svh w-full bg-background text-foreground;
+  }
+
+  /* Override Radix scroll locking for sticky headers */
+  body[data-scroll-locked] {
+    overflow: unset !important;
+  }
+
+  /* Cursor pointer for buttons */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Prevent focus zoom on mobile devices */
+  @media screen and (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Collapsible animations */
+.CollapsibleContent {
+  overflow: hidden;
+}
+
+.CollapsibleContent[data-state='open'] {
+  animation: slideDown 300ms ease-out;
+}
+
+.CollapsibleContent[data-state='closed'] {
+  animation: slideUp 300ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
   }
 }
