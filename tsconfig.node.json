@@ -13,6 +13,13 @@
 		"moduleDetection": "force",
 		"noEmit": true,
 
+		/* Path Aliases */
+		"baseUrl": ".",
+		"paths": {
+			"@/shared/*": ["./src/shared/*"],
+			"@/shared": ["./src/shared"]
+		},
+
 		/* Linting */
 		"strict": true,
 		"noUnusedLocals": true,
@@ -20,5 +27,5 @@
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedSideEffectImports": true
 	},
-	"include": ["vite.config.ts"]
+	"include": ["vite.config.ts", "src/shared"]
 }

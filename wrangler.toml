@@ -12,8 +12,8 @@ not_found_handling = "single-page-application"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "sample-worker-neo-db"
-database_id = "sample-worker-neo-db"
+database_name = "test"
+database_id = "local"
 
 [vars]
 JWT_SECRET = "your-secret-key-change-in-production"

@@ -1,11 +1,47 @@
 import { Routes, Route, Navigate, Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Home, Info, Contact, LogIn, LogOut, User } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Home, Info, Contact, LogIn, LogOut, User, BookOpen } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useState } from 'react';
+import type { PluginState } from '@/shared/plugin';
+import { PluginStatus } from '@/shared/plugin';
+import { BlogListPage, BlogPostPage } from '@/pages/blog';
+
+interface BackendPluginState {
+	plugins: Array<{ id: string; name: string; version: string }>;
+	states: PluginState[];
+}
 
 export function UserApp() {
 	const { user, logout } = useAuth();
+	const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
+	const [loading, setLoading] = useState(true);
+
+	// Fetch plugin states to check which plugins are enabled
+	useEffect(() => {
+		const fetchPluginStates = async () => {
+			try {
+				const response = await fetch('/api/plugins');
+				if (response.ok) {
+					const data: BackendPluginState = await response.json();
+					setPluginStates(data.states || []);
+				}
+			} catch (error) {
+				console.error('Failed to fetch plugin states:', error);
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		fetchPluginStates();
+	}, []);
+
+	// Check if blog plugin is enabled
+	const blogPlugin = pluginStates.find(
+		(state) => state.id === '550e8400-e29b-41d4-a716-446655440001' && state.status === 'enabled'
+	);
+	const isBlogEnabled = !!blogPlugin;
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -20,6 +56,14 @@ export function UserApp() {
 								Home
 							</Link>
 						</Button>
+						{isBlogEnabled && (
+							<Button variant="ghost" size="sm" asChild>
+								<Link to="/blog">
+									<BookOpen className="w-4 h-4 mr-2" />
+									Blog
+								</Link>
+							</Button>
+						)}
 						<Button variant="ghost" size="sm" asChild>
 							<Link to="/about">
 								<Info className="w-4 h-4 mr-2" />
@@ -67,6 +111,8 @@ export function UserApp() {
 					<Route path="/" element={<UserHome />} />
 					<Route path="/about" element={<UserAbout />} />
 					<Route path="/contact" element={<UserContact />} />
+					<Route path="/blog" element={<BlogListPage isEnabled={isBlogEnabled} />} />
+					<Route path="/blog/:slug" element={<BlogPostPage isEnabled={isBlogEnabled} />} />
 					<Route path="*" element={<Navigate to="/" replace />} />
 				</Routes>
 			</main>

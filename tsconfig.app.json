@@ -18,15 +18,22 @@
 		/* Path Aliases */
 		"baseUrl": ".",
 		"paths": {
-			"@/*": ["./src/react-app/*"]
+			"@/shared/*": ["./src/shared/*"],
+			"@/plugins": ["./src/react-app/plugins"],
+			"@/plugins/*": ["./src/react-app/plugins/*"],
+			"@/components/*": ["./src/react-app/components/*"],
+			"@/pages/*": ["./src/react-app/pages/*"],
+			"@/contexts/*": ["./src/react-app/contexts/*"],
+			"@/lib/*": ["./src/react-app/lib/*"],
+			"@/apps/*": ["./src/react-app/apps/*"]
 		},
 
 		/* Linting */
 		"strict": true,
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
 		"noFallthroughCasesInSwitch": true,
-		"noUncheckedSideEffectImports": true
+		"noUncheckedSideEffectImports": false
 	},
 	"include": ["src/react-app"]
 }

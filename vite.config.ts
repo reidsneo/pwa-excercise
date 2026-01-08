@@ -76,7 +76,21 @@ export default defineConfig({
 	],
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "./src/react-app"),
+			// Shared types must come first as they're used by both frontend and backend
+			"@/shared": path.resolve(__dirname, "./src/shared"),
+			"@/shared/*": path.resolve(__dirname, "./src/shared/*"),
+			"@/plugins": path.resolve(__dirname, "./src/react-app/plugins"),
+			"@/plugins/*": path.resolve(__dirname, "./src/react-app/plugins/*"),
+			"@/components": path.resolve(__dirname, "./src/react-app/components"),
+			"@/components/*": path.resolve(__dirname, "./src/react-app/components/*"),
+			"@/pages": path.resolve(__dirname, "./src/react-app/pages"),
+			"@/pages/*": path.resolve(__dirname, "./src/react-app/pages/*"),
+			"@/contexts": path.resolve(__dirname, "./src/react-app/contexts"),
+			"@/contexts/*": path.resolve(__dirname, "./src/react-app/contexts/*"),
+			"@/lib": path.resolve(__dirname, "./src/react-app/lib"),
+			"@/lib/*": path.resolve(__dirname, "./src/react-app/lib/*"),
+			"@/apps": path.resolve(__dirname, "./src/react-app/apps"),
+			"@/apps/*": path.resolve(__dirname, "./src/react-app/apps/*"),
 		},
 	},
 });

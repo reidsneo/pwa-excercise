@@ -44,6 +44,26 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
+-- Plugin states table
+CREATE TABLE IF NOT EXISTS plugin_states (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'installed',
+    version TEXT NOT NULL,
+    enabled_at INTEGER,
+    disabled_at INTEGER,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+-- Plugin migrations table
+CREATE TABLE IF NOT EXISTS plugin_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plugin_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(plugin_id, version)
+);
+
 -- Insert default permissions
 INSERT INTO permissions (name, description, resource, action) VALUES
     ('users.view', 'View users list', 'users', 'view'),
@@ -55,6 +75,12 @@ INSERT INTO permissions (name, description, resource, action) VALUES
     ('roles.edit', 'Edit role information', 'roles', 'edit'),
     ('roles.delete', 'Delete roles', 'roles', 'delete'),
     ('roles.assign_permissions', 'Assign permissions to roles', 'roles', 'assign_permissions'),
+    ('plugins.view', 'View plugins list', 'plugins', 'view'),
+    ('plugins.install', 'Install plugins', 'plugins', 'install'),
+    ('plugins.enable', 'Enable plugins', 'plugins', 'enable'),
+    ('plugins.disable', 'Disable plugins', 'plugins', 'disable'),
+    ('plugins.uninstall', 'Uninstall plugins', 'plugins', 'uninstall'),
+    ('plugins.configure', 'Configure plugins', 'plugins', 'configure'),
     ('content.view', 'View content', 'content', 'view'),
     ('content.create', 'Create content', 'content', 'create'),
     ('content.edit', 'Edit content', 'content', 'edit'),
@@ -74,14 +100,9 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT 1, id FROM permissions;
 
 -- Assign permissions to user role (basic permissions)
-INSERT INTO role_permissions (role_id, permission_id) VALUES
-    (2, 10), -- content.view
-    (2, 11); -- content.create
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 2, id FROM permissions WHERE name IN ('content.view', 'content.create');
 
 -- Assign permissions to moderator role
-INSERT INTO role_permissions (role_id, permission_id) VALUES
-    (3, 1),  -- users.view
-    (3, 10), -- content.view
-    (3, 11), -- content.create
-    (3, 12), -- content.edit
-    (3, 13); -- content.delete
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 3, id FROM permissions WHERE name IN ('users.view', 'content.view', 'content.create', 'content.edit', 'content.delete');
