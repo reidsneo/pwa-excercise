@@ -7,19 +7,60 @@ import { AdminRoles } from "@/pages/admin/AdminRolesPage";
 import { AdminPlugins } from "@/pages/admin/AdminPluginsPage";
 import { AdminBlogListPage, AdminBlogEditPage } from "@/pages/admin/blog";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import type { PluginState } from "@/shared/plugin";
+import { PluginStatus } from "@/shared/plugin";
 
 interface MenuItem {
 	path: string;
 	label: string;
 	icon: React.ComponentType<{ className?: string }>;
 	permission: { resource: string; action: string };
+	pluginId?: string; // Optional: only show if this plugin is enabled
+}
+
+interface BackendPluginState {
+	plugins: Array<{ id: string; name: string; version: string }>;
+	states: PluginState[];
 }
 
 export function AdminApp() {
 	const { hasPermission, user } = useAuth();
+	const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
+
+	// Fetch plugin states to check which plugins are enabled
+	useEffect(() => {
+		const fetchPluginStates = async () => {
+			try {
+				const response = await fetch('/api/plugins');
+				if (response.ok) {
+					const data: BackendPluginState = await response.json();
+					setPluginStates(data.states || []);
+				}
+			} catch (error) {
+				console.error('Failed to fetch plugin states:', error);
+			}
+		};
+
+		fetchPluginStates();
+	}, []);
+
+	// Check if blog plugin is enabled
+	const blogPlugin = pluginStates.find(
+		(state) => state.id === '550e8400-e29b-41d4-a716-446655440001' && state.status === PluginStatus.ENABLED
+	);
+	const isBlogEnabled = !!blogPlugin;
 
 	// Helper function to check if user has permission OR is admin
 	const canAccess = (resource: string, action: string) => {
+		return hasPermission(resource, action) || user?.roleId === 1;
+	};
+
+	// Check if a plugin-dependent menu item should be shown
+	const canAccessPlugin = (resource: string, action: string, pluginId?: string) => {
+		if (pluginId === '550e8400-e29b-41d4-a716-446655440001') {
+			return isBlogEnabled && (hasPermission(resource, action) || user?.roleId === 1);
+		}
 		return hasPermission(resource, action) || user?.roleId === 1;
 	};
 
@@ -29,6 +70,7 @@ export function AdminApp() {
 			label: "Blog",
 			icon: FileText,
 			permission: { resource: "blog", action: "manage" },
+			pluginId: '550e8400-e29b-41d4-a716-446655440001',
 		},
 		{
 			path: "/admin/users",
@@ -63,7 +105,7 @@ export function AdminApp() {
 	];
 
 	const filteredMenuItems = menuItems.filter((item) =>
-		canAccess(item.permission.resource, item.permission.action)
+		canAccessPlugin(item.permission.resource, item.permission.action, item.pluginId)
 	);
 
 	return (
@@ -119,7 +161,7 @@ export function AdminApp() {
 					<main className="p-8">
 						<Routes>
 							<Route path="/" element={<AdminDashboard />} />
-							{canAccess("blog", "manage") && (
+							{isBlogEnabled && canAccess("blog", "manage") && (
 								<>
 									<Route path="/blog" element={<AdminBlogListPage />} />
 									<Route path="/blog/new" element={<AdminBlogEditPage />} />

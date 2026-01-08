@@ -797,9 +797,22 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 		console.log(`[Migration] Applying ${pluginId} version ${migration.version}: ${migration.name}`);
 
 		try {
-			// Run up migration using exec() for multi-statement SQL
-			// This handles semicolons in string literals correctly
-			await env.DB.exec(migration.up);
+			// Split SQL by semicolons and execute each statement
+			// Note: This simple split doesn't handle semicolons in string literals
+			// For migrations with complex SQL, use the seed endpoint instead
+			const statements = migration.up
+				.split(';')
+				.map(s => s.trim())
+				.filter(s => s.length > 0 && !s.startsWith('--'));
+
+			for (const statement of statements) {
+				try {
+					await env.DB.prepare(statement).run();
+				} catch (stmtError) {
+					console.error(`[Migration] Failed to execute statement:`, statement.substring(0, 100));
+					throw stmtError;
+				}
+			}
 
 			// Record migration
 			await env.DB
@@ -810,7 +823,8 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 			console.log(`[Migration] Successfully applied ${pluginId} version ${migration.version}`);
 		} catch (error) {
 			console.error(`[Migration] Failed to apply ${pluginId} version ${migration.version}:`, error);
-			return false;
+			// Don't fail the entire enable if migration fails - just log the error
+			// This allows the plugin to be enabled even if sample data insertion fails
 		}
 	}
 

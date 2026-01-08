@@ -70,8 +70,7 @@ function App() {
 					<BrowserRouter>
 						<Routes>
 							{/* Core Routes */}
-							<Route path="/" element={<UserApp />} />
-							<Route path="/user/*" element={<UserApp />} />
+							<Route path="/*" element={<UserApp />} />
 							<Route path="/login" element={<LoginPage />} />
 							<Route path="/register" element={<RegisterPage />} />
 							<Route

@@ -43,11 +43,6 @@ export function UserApp() {
 	);
 	const isBlogEnabled = !!blogPlugin;
 
-	// Debug logging
-	console.log('[UserApp] Plugin states:', pluginStates);
-	console.log('[UserApp] Blog plugin:', blogPlugin);
-	console.log('[UserApp] Is blog enabled:', isBlogEnabled);
-
 	return (
 		<div className="min-h-screen bg-background">
 			{/* Header */}

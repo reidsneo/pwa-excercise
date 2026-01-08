@@ -31,7 +31,23 @@ interface Tag {
   slug: string;
 }
 
-export function BlogPostPage() {
+interface BlogPostPageProps {
+  isEnabled?: boolean;
+}
+
+export function BlogPostPage({ isEnabled = true }: BlogPostPageProps) {
+  // Redirect to home if plugin is disabled
+  if (!isEnabled) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">Blog Not Available</h2>
+          <p className="text-muted-foreground">The blog plugin is not enabled.</p>
+        </div>
+      </div>
+    );
+  }
+
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [post, setPost] = useState<BlogPost | null>(null);

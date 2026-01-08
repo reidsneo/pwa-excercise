@@ -42,7 +42,23 @@ interface Tag {
   post_count: number;
 }
 
-export function BlogListPage() {
+interface BlogListPageProps {
+  isEnabled?: boolean;
+}
+
+export function BlogListPage({ isEnabled = true }: BlogListPageProps) {
+  // Redirect to home if plugin is disabled
+  if (!isEnabled) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">Blog Not Available</h2>
+          <p className="text-muted-foreground">The blog plugin is not enabled.</p>
+        </div>
+      </div>
+    );
+  }
+
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
