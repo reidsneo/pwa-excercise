@@ -10,7 +10,7 @@ import type {
   PluginId,
   PluginPackage,
   MarketplaceResponse,
-} from '@/shared/plugin';
+} from '../../shared/plugin/index.ts';
 
 // -----------------------------------------------------------------------------
 // Plugin API Routes

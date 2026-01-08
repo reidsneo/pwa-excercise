@@ -6,12 +6,33 @@ import type { Env } from "./db";
 import * as db from "./db";
 import * as schema from "./db/schema";
 import * as auth from "./auth";
+import { detectTenant } from "./middleware/tenant";
+import type { Variables } from "./middleware/types";
 
-const app = new Hono<{ Bindings: Env }>();
+type AppContext = { Bindings: Env; Variables: Variables };
+
+const app = new Hono<AppContext>();
 
 // Middleware
 app.use("*", cors());
 app.use("*", logger());
+app.use("*", detectTenant);
+
+// Initialize plugin registry and register built-in plugins
+app.use("/*", async (_, next) => {
+  // Initialize the registry if not already initialized
+  if (!BackendPluginRegistry.isInitialized()) {
+    console.log('[Plugins] Initializing BackendPluginRegistry...');
+    // @ts-expect-error - Hono type compatibility issue between registry and app
+    await BackendPluginRegistry.initialize(app);
+    console.log('[Plugins] BackendPluginRegistry initialized');
+  }
+
+  // Ensure blog plugin is registered
+  await ensureBlogPluginRegistered();
+
+  await next();
+});
 
 // Database initialization on startup
 let dbInitialized = false;
@@ -20,16 +41,18 @@ async function initializeDatabase(env: Env) {
 	if (dbInitialized) return;
 
 	try {
-		const database = db.createDb(env);
-
-		// Check if tables exist by trying to query users table
-		await database.select().from(schema.users).limit(1);
+		// Check if we need to initialize by testing if plugins table exists
+		// This is the last table we added, so if it exists, all tables should exist
+		await env.DB.prepare("SELECT 1 FROM plugins LIMIT 1").first();
 		dbInitialized = true;
+		return; // All tables exist
 	} catch {
 		// Tables don't exist, need to initialize
 		console.log("Initializing database...");
+	}
 
-		// Create tables
+	// Create tables (using CREATE TABLE IF NOT EXISTS for safety)
+	try {
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, name TEXT NOT NULL, role_id INTEGER REFERENCES roles(id), is_active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS roles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT, resource TEXT NOT NULL, action TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
@@ -39,6 +62,30 @@ async function initializeDatabase(env: Env) {
 		// Plugin management tables
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_states (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'installed', version TEXT NOT NULL, enabled_at INTEGER, disabled_at INTEGER, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, plugin_id TEXT NOT NULL, version TEXT NOT NULL, applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), UNIQUE(plugin_id, version));");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugins (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, version TEXT NOT NULL, author TEXT, category TEXT, icon TEXT, featured INTEGER DEFAULT 0, downloads INTEGER DEFAULT 0, rating INTEGER DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
+
+		// SaaS Multitenancy tables
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, custom_domain TEXT UNIQUE, plan TEXT NOT NULL DEFAULT 'free', status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), stripe_customer_id TEXT, stripe_subscription_id TEXT, subscription_status TEXT, trial_ends_at INTEGER);");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_licenses (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, plugin_id TEXT NOT NULL, plan TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', features TEXT, expires_at INTEGER, trial_used INTEGER DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), subscription_id TEXT, price_id TEXT, amount INTEGER, currency TEXT DEFAULT 'usd', UNIQUE(tenant_id, plugin_id));");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_tiers (plugin_id TEXT NOT NULL, tier_id TEXT NOT NULL, name TEXT NOT NULL, features TEXT NOT NULL, price_monthly INTEGER, price_yearly INTEGER, price_lifetime INTEGER, trial_days INTEGER DEFAULT 14, PRIMARY KEY (plugin_id, tier_id));");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_feature_flags (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, plugin_id TEXT NOT NULL, feature_key TEXT NOT NULL, is_enabled INTEGER DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), UNIQUE(tenant_id, plugin_id, feature_key));");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_usage (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, plugin_id TEXT NOT NULL, metric_name TEXT NOT NULL, quantity INTEGER DEFAULT 1, period TEXT NOT NULL, recorded_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, plugin_id TEXT, invoice_id TEXT, amount INTEGER NOT NULL, currency TEXT DEFAULT 'usd', status TEXT NOT NULL, due_at INTEGER, paid_at INTEGER, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
+
+		// SaaS indexes
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugins_category ON plugins(category);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugins_featured ON plugins(featured);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_tenants_custom_domain ON tenants(custom_domain);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_licenses_tenant ON plugin_licenses(tenant_id);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_licenses_plugin ON plugin_licenses(plugin_id);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_licenses_status ON plugin_licenses(status);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_licenses_expires ON plugin_licenses(expires_at);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_feature_flags_tenant ON plugin_feature_flags(tenant_id, plugin_id);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_usage_tenant_period ON plugin_usage(tenant_id, period);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON invoices(tenant_id);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);");
 
 		// Insert default permissions
 		await env.DB.exec("INSERT OR IGNORE INTO permissions (name, description, resource, action) VALUES ('users.view', 'View users list', 'users', 'view'), ('users.create', 'Create new users', 'users', 'create'), ('users.edit', 'Edit user information', 'users', 'edit'), ('users.delete', 'Delete users', 'users', 'delete'), ('roles.view', 'View roles list', 'roles', 'view'), ('roles.create', 'Create new roles', 'roles', 'create'), ('roles.edit', 'Edit role information', 'roles', 'edit'), ('roles.delete', 'Delete roles', 'roles', 'delete'), ('roles.assign_permissions', 'Assign permissions to roles', 'roles', 'assign_permissions'), ('plugins.view', 'View plugins list', 'plugins', 'view'), ('plugins.install', 'Install plugins', 'plugins', 'install'), ('plugins.enable', 'Enable plugins', 'plugins', 'enable'), ('plugins.disable', 'Disable plugins', 'plugins', 'disable'), ('plugins.uninstall', 'Uninstall plugins', 'plugins', 'uninstall'), ('plugins.configure', 'Configure plugins', 'plugins', 'configure'), ('blog.posts.view', 'View blog posts', 'blog', 'posts.view'), ('blog.posts.create', 'Create blog posts', 'blog', 'posts.create'), ('blog.posts.edit', 'Edit blog posts', 'blog', 'posts.edit'), ('blog.posts.delete', 'Delete blog posts', 'blog', 'posts.delete'), ('blog.posts.publish', 'Publish blog posts', 'blog', 'posts.publish'), ('blog.categories.manage', 'Manage blog categories', 'blog', 'categories.manage'), ('blog.tags.manage', 'Manage blog tags', 'blog', 'tags.manage'), ('blog.settings.manage', 'Manage blog settings', 'blog', 'settings.manage'), ('content.view', 'View content', 'content', 'view'), ('content.create', 'Create content', 'content', 'create'), ('content.edit', 'Edit content', 'content', 'edit'), ('content.delete', 'Delete content', 'content', 'delete'), ('settings.view', 'View settings', 'settings', 'view'), ('settings.edit', 'Edit settings', 'settings', 'edit'), ('analytics.view', 'View analytics', 'analytics', 'view');");
@@ -57,6 +104,9 @@ async function initializeDatabase(env: Env) {
 
 		console.log("Database initialized successfully");
 		dbInitialized = true;
+	} catch (error) {
+		console.error("Failed to initialize database:", error);
+		throw error;
 	}
 }
 
@@ -191,6 +241,9 @@ app.get("/api/auth/me", async (c) => {
 	// Type guard to check if user has permissions
 	const userWithPermissions = 'permissions' in user ? user : null;
 
+	const tenant = c.get('tenant');
+	const licenses = c.get('licenses') || [];
+
 	return c.json({
 		user: {
 			id: user.user.id,
@@ -200,6 +253,43 @@ app.get("/api/auth/me", async (c) => {
 			role: user.role,
 			permissions: userWithPermissions?.permissions || [],
 		},
+		tenant: tenant ? {
+			id: tenant.id,
+			name: tenant.name,
+			slug: tenant.slug,
+			plan: tenant.plan,
+			status: tenant.status,
+		} : null,
+		licenses: licenses,
+	});
+});
+
+// Plugin licenses API
+app.get("/api/plugins/licenses", async (c) => {
+	const token = auth.getAuthToken(c.req.raw);
+	if (!token || !(await auth.verifyToken(token, c.env))) {
+		return c.json({ error: "Not authenticated" }, 401);
+	}
+
+	const tenant = c.get('tenant');
+	const licenses = c.get('licenses') || [];
+
+	if (!tenant) {
+		return c.json({
+			tenant: null,
+			licenses: [],
+		});
+	}
+
+	return c.json({
+		tenant: {
+			id: tenant.id,
+			name: tenant.name,
+			slug: tenant.slug,
+			plan: tenant.plan,
+			status: tenant.status,
+		},
+		licenses: licenses,
 	});
 });
 
@@ -404,16 +494,37 @@ app.get("/api/plugins/test", (c) => {
 });
 
 import { BackendPluginRegistry } from "./plugins/BackendPluginRegistry";
-import type { PluginId } from "@/shared/plugin";
+import type { PluginId } from "../shared/plugin/index.ts";
 import { createBlogRoutes, manifest as blogManifest } from "./plugins/blog";
+import { createSaaSRoutes } from "./routes/saas";
 
-// Register blog plugin with the registry
-BackendPluginRegistry.register(blogManifest).catch((error) => {
-  console.error('[Plugins] Failed to register blog plugin:', error);
-});
+// Track if blog plugin has been registered
+let blogPluginRegistered = false;
+
+// Register blog plugin with the registry (called after registry is initialized)
+async function ensureBlogPluginRegistered() {
+  if (blogPluginRegistered) return;
+
+  try {
+    console.log('[Plugins] Registering blog plugin with ID:', blogManifest.id);
+    const result = await BackendPluginRegistry.register(blogManifest);
+
+    if (result.success) {
+      console.log('[Plugins] Blog plugin registered successfully');
+      blogPluginRegistered = true;
+    } else {
+      console.error('[Plugins] Failed to register blog plugin:', result.error);
+    }
+  } catch (error) {
+    console.error('[Plugins] Error registering blog plugin:', error);
+  }
+}
 
 // Create blog routes
 const blogRoutes = createBlogRoutes();
+
+// Create SaaS routes
+const saasRoutes = createSaaSRoutes();
 
 // =============================================================================
 // API Routes - Plugin Management
@@ -466,7 +577,7 @@ app.post("/api/plugins/install", async (c) => {
 		return c.json({ error: "pluginId is required" }, 400);
 	}
 
-	// Check if plugin is already installed
+	// Check if plugin is already installed in the database
 	const existing = await c.env.DB
 		.prepare("SELECT id FROM plugin_states WHERE id = ?")
 		.bind(pluginId)
@@ -476,25 +587,46 @@ app.post("/api/plugins/install", async (c) => {
 		return c.json({ error: "Plugin is already installed" }, 400);
 	}
 
-	// Register the plugin
-	const result = await BackendPluginRegistry.register(
-		BackendPluginRegistry.getPlugin(pluginId as PluginId)!
-	);
+	// Check if plugin is already registered in the BackendPluginRegistry
+	let registeredPlugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
 
-	if (result.success) {
-		// Add plugin state to database as 'installed'
+	// If not registered, try to register built-in plugins
+	if (!registeredPlugin) {
+		console.log(`[Plugin Install] Plugin ${pluginId} not in registry, attempting to register...`);
+
+		// For the blog plugin, re-register it if it's a built-in plugin
+		if (pluginId === blogManifest.id) {
+			console.log('[Plugin Install] Re-registering built-in blog plugin');
+			const result = await BackendPluginRegistry.register(blogManifest);
+			if (result.success) {
+				registeredPlugin = blogManifest;
+				console.log('[Plugin Install] Blog plugin re-registered successfully');
+			} else {
+				console.error('[Plugin Install] Failed to re-register blog plugin:', result.error);
+				return c.json({ error: "Failed to register plugin", details: result.error }, 500);
+			}
+		} else {
+			return c.json({ error: "Plugin not found in registry" }, 404);
+		}
+	}
+
+	// Add plugin state to database as 'installed'
+	try {
 		await c.env.DB
 			.prepare(`
 				INSERT INTO plugin_states (id, status, version, updated_at)
-				VALUES (?, 'installed', '1.0.0', strftime('%s', 'now'))
+				VALUES (?, 'installed', ?, strftime('%s', 'now'))
 			`)
-			.bind(pluginId)
+			.bind(pluginId, registeredPlugin.version)
 			.run();
 
-		return c.json({ success: true });
-	}
+		console.log(`[Plugin Install] Plugin ${pluginId} installed successfully`);
 
-	return c.json({ error: result.error || "Failed to install plugin" }, 400);
+		return c.json({ success: true, pluginId, version: registeredPlugin.version });
+	} catch (error) {
+		console.error('[Plugin Install] Failed to insert plugin state:', error);
+		return c.json({ error: "Failed to install plugin", details: error instanceof Error ? error.message : String(error) }, 500);
+	}
 });
 
 // Enable plugin (using POST body instead of URL param)
@@ -728,8 +860,256 @@ Let''s create a flexible plugin system that scales with your application.',
 	}
 });
 
+// Seed plugin tier data (development helper)
+app.post("/api/saas/seed-tiers", async (c) => {
+	console.log('[SaaS Seed] Seeding plugin tier data...');
+
+	const db = c.env.DB;
+
+	try {
+		// Insert plugin tiers for blog plugin
+		await db.prepare(`
+			INSERT OR REPLACE INTO plugin_tiers (plugin_id, tier_id, name, features, price_monthly, price_yearly, price_lifetime, trial_days) VALUES
+			(
+				'blog',
+				'free',
+				'Blog Free',
+				'["posts.view", "posts.create", "posts.edit", "categories.view", "tags.view"]',
+				0,
+				NULL,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'trial',
+				'Blog Trial',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage"]',
+				NULL,
+				NULL,
+				NULL,
+				14
+			),
+			(
+				'blog',
+				'monthly',
+				'Blog Pro Monthly',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				999,
+				NULL,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'yearly',
+				'Blog Pro Yearly',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				NULL,
+				9999,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'lifetime',
+				'Blog Lifetime',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				NULL,
+				NULL,
+				49999,
+				0
+			)
+		`).run();
+
+		console.log('[SaaS Seed] Plugin tier data seeded successfully');
+		return c.json({ success: true, message: 'Plugin tier data seeded successfully' });
+	} catch (error) {
+		console.error('[SaaS Seed] Error seeding tier data:', error);
+		return c.json({ error: 'Failed to seed plugin tier data', details: error instanceof Error ? error.message : String(error) }, 500);
+	}
+});
+
+// Create a sample tenant (development helper)
+app.post("/api/saas/seed-tenant", async (c) => {
+	console.log('[SaaS Seed] Creating sample tenant...');
+
+	const db = c.env.DB;
+	const { name } = await c.req.json();
+
+	try {
+		const tenantId = crypto.randomUUID();
+		const hash = Math.random().toString(36).substring(2, 8);
+		const slug = `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}-${hash}`;
+
+		// Create tenant
+		await db.prepare(`
+			INSERT INTO tenants (id, name, slug, plan, status, trial_ends_at)
+			VALUES (?, ?, ?, 'free', 'active', strftime('%s', 'now') + 14 * 24 * 60 * 60)
+		`).bind(tenantId, name, slug).run();
+
+		// Grant free blog license
+		await db.prepare(`
+			INSERT INTO plugin_licenses (id, tenant_id, plugin_id, plan, status, features)
+			VALUES (?, ?, 'blog', 'free', 'active', '["posts.view", "posts.create", "posts.edit", "categories.view", "tags.view"]')
+		`).bind(crypto.randomUUID(), tenantId).run();
+
+		console.log('[SaaS Seed] Sample tenant created successfully');
+		return c.json({ success: true, message: 'Sample tenant created', tenantId, slug });
+	} catch (error) {
+		console.error('[SaaS Seed] Error creating tenant:', error);
+		return c.json({ error: 'Failed to create tenant', details: error instanceof Error ? error.message : String(error) }, 500);
+	}
+});
+
+// Seed plugin marketplace data (development helper)
+app.post("/api/saas/seed-plugins", async (c) => {
+	console.log('[SaaS Seed] Seeding plugin marketplace data...');
+
+	const db = c.env.DB;
+
+	try {
+		// Insert blog plugin to marketplace
+		await db.prepare(`
+			INSERT OR REPLACE INTO plugins (id, name, description, version, author, category, icon, featured, downloads, rating)
+			VALUES (
+				'550e8400-e29b-41d4-a716-446655440001',
+				'Blog Plugin',
+				'Full-featured blog with posts, categories, tags, and powerful publishing tools. Perfect for content creators and businesses.',
+				'1.1.0',
+				'System',
+				'content',
+				'📝',
+				1,
+				0,
+				5
+			)
+		`).run();
+
+		console.log('[SaaS Seed] Plugin marketplace data seeded successfully');
+		return c.json({ success: true, message: 'Plugin marketplace data seeded successfully' });
+	} catch (error) {
+		console.error('[SaaS Seed] Error seeding plugin data:', error);
+		return c.json({ error: 'Failed to seed plugin data', details: error instanceof Error ? error.message : String(error) }, 500);
+	}
+});
+
+// Initialize all database and run migrations (development helper)
+app.post("/api/initialize", async (c) => {
+	console.log('[Initialize] Starting full initialization...');
+
+	const db = c.env.DB;
+
+	try {
+		// Step 1: Initialize core database tables
+		await initializeDatabase(c.env);
+
+		// Step 2: Seed plugin marketplace
+		console.log('[Initialize] Seeding plugin marketplace...');
+		await db.prepare(`
+			INSERT OR REPLACE INTO plugins (id, name, description, version, author, category, icon, featured, downloads, rating)
+			VALUES (
+				'550e8400-e29b-41d4-a716-446655440001',
+				'Blog Plugin',
+				'Full-featured blog with posts, categories, tags, and powerful publishing tools. Perfect for content creators and businesses.',
+				'1.1.0',
+				'System',
+				'content',
+				'📝',
+				1,
+				0,
+				5
+			)
+		`).run();
+
+		// Step 3: Seed plugin tiers
+		console.log('[Initialize] Seeding plugin tiers...');
+		await db.prepare(`
+			INSERT OR REPLACE INTO plugin_tiers (plugin_id, tier_id, name, features, price_monthly, price_yearly, price_lifetime, trial_days) VALUES
+			(
+				'blog',
+				'free',
+				'Blog Free',
+				'["posts.view", "posts.create", "posts.edit", "categories.view", "tags.view"]',
+				0,
+				NULL,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'trial',
+				'Blog Trial',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage"]',
+				NULL,
+				NULL,
+				NULL,
+				14
+			),
+			(
+				'blog',
+				'monthly',
+				'Blog Pro Monthly',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				999,
+				NULL,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'yearly',
+				'Blog Pro Yearly',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				NULL,
+				9999,
+				NULL,
+				0
+			),
+			(
+				'blog',
+				'lifetime',
+				'Blog Lifetime',
+				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
+				NULL,
+				NULL,
+				49999,
+				0
+			)
+		`).run();
+
+		// Step 4: Register and enable blog plugin with migrations
+		console.log('[Initialize] Registering and enabling blog plugin...');
+		const blogPluginId = '550e8400-e29b-41d4-a716-446655440001';
+
+		// Register the plugin
+		await BackendPluginRegistry.register(blogManifest);
+
+		// Run migrations
+		await runPluginMigrations(blogPluginId, c.env);
+
+		// Enable the plugin
+		await BackendPluginRegistry.enable(blogPluginId);
+
+		console.log('[Initialize] Full initialization completed successfully');
+		return c.json({
+			success: true,
+			message: 'Database initialized, marketplace seeded, tiers created, and blog plugin enabled with migrations'
+		});
+	} catch (error) {
+		console.error('[Initialize] Error during initialization:', error);
+		return c.json({
+			error: 'Initialization failed',
+			details: error instanceof Error ? error.message : String(error)
+		}, 500);
+	}
+});
+
 // Mount blog routes AFTER plugin management routes
 app.route('/', blogRoutes);
+
+// Mount SaaS routes
+app.route('/api/saas', saasRoutes);
 
 // Migration Runner
 interface PluginMigrationState {
@@ -797,19 +1177,18 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 		console.log(`[Migration] Applying ${pluginId} version ${migration.version}: ${migration.name}`);
 
 		try {
-			// Split SQL by semicolons and execute each statement
-			// Note: This simple split doesn't handle semicolons in string literals
-			// For migrations with complex SQL, use the seed endpoint instead
-			const statements = migration.up
-				.split(';')
-				.map(s => s.trim())
-				.filter(s => s.length > 0 && !s.startsWith('--'));
+			// Parse SQL statements more carefully to handle complex migrations
+			// This function handles:
+			// - Multi-line CREATE TABLE statements
+			// - Semicolons inside string literals or function calls
+			// - Comments (-- style)
+			const statements = parseSqlStatements(migration.up);
 
 			for (const statement of statements) {
 				try {
 					await env.DB.prepare(statement).run();
 				} catch (stmtError) {
-					console.error(`[Migration] Failed to execute statement:`, statement.substring(0, 100));
+					console.error(`[Migration] Failed to execute statement:`, statement.substring(0, 200));
 					throw stmtError;
 				}
 			}
@@ -823,12 +1202,83 @@ async function runPluginMigrations(pluginId: string, env: Env): Promise<boolean>
 			console.log(`[Migration] Successfully applied ${pluginId} version ${migration.version}`);
 		} catch (error) {
 			console.error(`[Migration] Failed to apply ${pluginId} version ${migration.version}:`, error);
-			// Don't fail the entire enable if migration fails - just log the error
-			// This allows the plugin to be enabled even if sample data insertion fails
+			throw error; // Re-throw to fail the entire operation
 		}
 	}
 
 	return true;
+}
+
+/**
+ * Parse SQL statements from a migration script
+ * Handles complex SQL with semicolons in string literals and function calls
+ */
+function parseSqlStatements(sql: string): string[] {
+	const statements: string[] = [];
+	let current = '';
+	let inString = false;
+	let stringChar = '';
+	let inComment = false;
+	let parenDepth = 0;
+
+	for (let i = 0; i < sql.length; i++) {
+		const char = sql[i];
+		const nextChar = sql[i + 1] || '';
+
+		// Handle comments
+		if (!inString && !inComment && char === '-' && nextChar === '-') {
+			inComment = true;
+			i++; // Skip next character
+			continue;
+		}
+
+		if (inComment && char === '\n') {
+			inComment = false;
+			current += char;
+			continue;
+		}
+
+		if (inComment) {
+			continue;
+		}
+
+		// Handle string literals
+		if (!inComment && (char === '"' || char === "'" || char === '`')) {
+			if (!inString) {
+				inString = true;
+				stringChar = char;
+			} else if (char === stringChar) {
+				inString = false;
+				stringChar = '';
+			}
+		}
+
+		// Track parentheses for CREATE TABLE statements
+		if (!inString && !inComment) {
+			if (char === '(') parenDepth++;
+			if (char === ')') parenDepth--;
+		}
+
+		// Accumulate current statement
+		current += char;
+
+		// Check for statement terminator (semicolon not in string/comment, with parenDepth 0)
+		if (char === ';' && !inString && !inComment && parenDepth === 0) {
+			const trimmed = current.trim();
+			if (trimmed.length > 0) {
+				statements.push(trimmed);
+			}
+			current = '';
+		}
+	}
+
+	// Add remaining content
+	const trimmed = current.trim();
+	if (trimmed.length > 0) {
+		statements.push(trimmed);
+	}
+
+	return statements;
 }
 
 async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boolean> {
@@ -849,9 +1299,13 @@ async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boo
 		console.log(`[Migration] Rolling back ${pluginId} version ${migration.version}: ${migration.name}`);
 
 		try {
-			// Run down migration using exec() for multi-statement SQL
-			// This handles semicolons in string literals correctly
-			await env.DB.exec(migration.down);
+			// Parse SQL statements to handle semicolons in string literals correctly
+			const statements = parseSqlStatements(migration.down);
+
+			// Execute each statement individually
+			for (const statement of statements) {
+				await env.DB.exec(statement);
+			}
 
 			// Remove migration record
 			await env.DB
@@ -862,7 +1316,7 @@ async function rollbackPluginMigrations(pluginId: string, env: Env): Promise<boo
 			console.log(`[Migration] Successfully rolled back ${pluginId} version ${migration.version}`);
 		} catch (error) {
 			console.error(`[Migration] Failed to rollback ${pluginId} version ${migration.version}:`, error);
-			return false;
+			// Continue with other migrations even if one fails
 		}
 	}
 

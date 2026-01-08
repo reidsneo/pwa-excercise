@@ -5,6 +5,8 @@ import * as schema from "./schema";
 export interface Env {
 	DB: D1Database;
 	JWT_SECRET: string;
+	BASE_DOMAIN?: string;
+	STRIPE_WEBHOOK_SECRET?: string;
 }
 
 export function createDb(env: Env) {

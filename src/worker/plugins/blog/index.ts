@@ -6,9 +6,11 @@
 
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
-import type { BackendPluginManifest } from '@/shared/plugin';
+import type { BackendPluginManifest } from '../../../shared/plugin/index.ts';
 import type { Env } from '../../db';
+import type { Tenant } from '../../middleware/tenant';
 import { verifyAuth, requireAuth, requireAdmin } from '../../middleware/auth';
+import { requirePlugin, getPluginLicense } from '../../middleware/tenant';
 
 // -----------------------------------------------------------------------------
 // Blog Plugin Manifest
@@ -235,6 +237,58 @@ Let''s create a flexible plugin system that scales with your application.',
 // Blog API Controllers
 // -----------------------------------------------------------------------------
 
+/**
+ * Check if tenant has a specific blog feature based on their license
+ * Features are stored as JSON array in the license.features field
+ */
+async function hasBlogFeature(db: any, tenantId: string, feature: string): Promise<boolean> {
+  try {
+    const license = await getPluginLicense(db, tenantId, 'blog');
+    if (!license || license.status !== 'active') {
+      return false;
+    }
+
+    // Check if license has expired
+    if (license.expires_at && license.expires_at < Date.now() / 1000) {
+      return false;
+    }
+
+    // Check if feature is in the licensed features array
+    return license.features.includes(feature);
+  } catch (error) {
+    console.error('[Blog Plugin] Error checking feature:', error);
+    return false;
+  }
+}
+
+/**
+ * Middleware to require specific blog feature
+ */
+function requireBlogFeature(feature: string) {
+  return async (c: any, next: any) => {
+    const tenant = c.get('tenant') as Tenant | null;
+
+    if (!tenant) {
+      return c.json({
+        error: 'Tenant not found',
+        message: 'Unable to verify license for this feature.'
+      }, 404);
+    }
+
+    const hasFeature = await hasBlogFeature(c.env.DB, tenant.id, feature);
+
+    if (!hasFeature) {
+      return c.json({
+        error: 'Feature not available',
+        message: `The "${feature}" feature requires a higher tier blog subscription.`,
+        feature
+      }, 403);
+    }
+
+    await next();
+  };
+}
+
 export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
   const publicApp = new Hono<{ Bindings: Env }>();
@@ -397,11 +451,12 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   });
 
   // ============================================================================
-  // ADMIN ENDPOINTS (Auth + Admin required)
+  // ADMIN ENDPOINTS (Auth + Admin required + Blog License)
   // ============================================================================
 
-  // Apply auth middleware to all admin routes
-  adminApp.use('*', verifyAuth, requireAuth, requireAdmin);
+  // Apply auth and license middleware to all admin routes
+  // This ensures the tenant has an active blog plugin license
+  adminApp.use('*', verifyAuth, requireAuth, requireAdmin, requirePlugin('blog'));
 
   // ============================================================================
   // ADMIN POSTS API
@@ -705,8 +760,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json(updatedPost);
   });
 
-  // Delete post
-  adminApp.delete('/posts/:id', async (c) => {
+  // Delete post (requires posts.delete feature)
+  adminApp.delete('/posts/:id', requireBlogFeature('posts.delete'), async (c) => {
     const db = c.env.DB;
     const postId = c.req.param('id');
 
@@ -719,8 +774,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ success: true, message: 'Post deleted successfully' });
   });
 
-  // Publish post
-  adminApp.patch('/posts/:id/publish', async (c) => {
+  // Publish post (requires posts.publish feature)
+  adminApp.patch('/posts/:id/publish', requireBlogFeature('posts.publish'), async (c) => {
     const db = c.env.DB;
     const postId = c.req.param('id');
 
@@ -767,7 +822,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ categories: categories.results || [] });
   });
 
-  adminApp.post('/categories', async (c) => {
+  adminApp.post('/categories', requireBlogFeature('categories.manage'), async (c) => {
     const db = c.env.DB;
     const data = await c.req.json();
 
@@ -817,7 +872,7 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ tags: tags.results || [] });
   });
 
-  adminApp.post('/tags', async (c) => {
+  adminApp.post('/tags', requireBlogFeature('tags.manage'), async (c) => {
     const db = c.env.DB;
     const data = await c.req.json();
 

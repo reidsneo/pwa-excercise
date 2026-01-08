@@ -288,8 +288,32 @@ function InstalledPlugins({ manifests, states, onEnable, onDisable, onUninstall,
 }
 
 // -----------------------------------------------------------------------------
-// Marketplace Tab (Placeholder)
+// Marketplace Tab
 // -----------------------------------------------------------------------------
+
+interface MarketplacePlugin {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  category?: string;
+  icon?: string;
+  featured?: number;
+  downloads?: number;
+  rating?: number;
+  tiers: PricingTier[];
+}
+
+interface PricingTier {
+  tier_id: string;
+  name: string;
+  features: string[];
+  price_monthly: number | null;
+  price_yearly: number | null;
+  price_lifetime: number | null;
+  trial_days: number;
+}
 
 interface MarketplaceProps {
   installedIds: string[];
@@ -298,19 +322,35 @@ interface MarketplaceProps {
 }
 
 function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplaceProps) {
-  // Get available plugins from BackendPluginRegistry
-  // For now, hardcode available plugins that can be installed
-  const availablePlugins = [
-    {
-      id: '550e8400-e29b-41d4-a716-446655440001',
-      name: 'Blog Plugin',
-      description: 'Full-featured blog with posts, categories, and tags',
-      version: '1.0.0',
-      author: 'System',
-    },
-  ];
+  const [plugins, setPlugins] = useState<MarketplacePlugin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedPlugin, setSelectedPlugin] = useState<MarketplacePlugin | null>(null);
 
-  const pluginsToShow = availablePlugins.filter((p) => !installedIds.includes(p.id));
+  // Fetch marketplace plugins
+  useEffect(() => {
+    const fetchMarketplace = async () => {
+      try {
+        const response = await fetch('/api/saas/marketplace');
+        if (response.ok) {
+          const data = await response.json();
+          setPlugins(data.plugins || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch marketplace:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMarketplace();
+  }, []);
+
+  const pluginsToShow = plugins.filter((p) => !installedIds.includes(p.id));
+
+  const formatPrice = (price: number | null) => {
+    if (price === null) return '-';
+    return `$${(price / 100).toFixed(2)}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -318,59 +358,181 @@ function Marketplace({ installedIds, onInstall, loadingPluginId }: MarketplacePr
         <div>
           <h3 className="text-lg font-semibold">Plugin Marketplace</h3>
           <p className="text-muted-foreground">
-            Browse and install plugins from the marketplace
+            Browse and purchase plugins from the marketplace
           </p>
         </div>
-        <Button variant="outline">
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Plugin
-        </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {pluginsToShow.map((plugin) => (
-          <Card key={plugin.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <CardTitle>{plugin.name}</CardTitle>
-                  <CardDescription className="mt-1">{plugin.description}</CardDescription>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                    <span>ID: {plugin.id}</span>
-                    <span>v{plugin.version}</span>
-                    <span>by {plugin.author}</span>
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {pluginsToShow.map((plugin) => (
+            <Card key={plugin.id} className="flex flex-col">
+              <CardHeader>
+                <div className="flex items-start gap-3">
+                  {plugin.icon && (
+                    <div className="text-3xl">{plugin.icon}</div>
+                  )}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg">{plugin.name}</CardTitle>
+                      {plugin.featured === 1 && (
+                        <Badge variant="secondary" className="text-xs">
+                          Featured
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription className="mt-1 line-clamp-2">
+                      {plugin.description}
+                    </CardDescription>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                      <span>v{plugin.version}</span>
+                      <span>by {plugin.author}</span>
+                      {plugin.category && (
+                        <Badge variant="outline" className="text-xs">
+                          {plugin.category}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={() => onInstall(plugin.id)}
-                disabled={loadingPluginId === plugin.id}
-              >
-                {loadingPluginId === plugin.id ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Installing...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Install Plugin
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold mb-2">Pricing Plans:</p>
+                  <div className="space-y-2">
+                    {plugin.tiers.map((tier) => (
+                      <div key={tier.tier_id} className="p-2 bg-muted rounded text-sm">
+                        <div className="font-medium">{tier.name}</div>
+                        <div className="flex gap-3 text-xs text-muted-foreground mt-1">
+                          {tier.price_monthly && <span>Mo: {formatPrice(tier.price_monthly)}</span>}
+                          {tier.price_yearly && <span>Yr: {formatPrice(tier.price_yearly)}</span>}
+                          {tier.price_lifetime && <span>Life: {formatPrice(tier.price_lifetime)}</span>}
+                          {tier.price_monthly === null && tier.price_yearly === null && tier.price_lifetime === null && (
+                            <span>Free</span>
+                          )}
+                        </div>
+                        {tier.trial_days > 0 && (
+                          <div className="text-xs text-blue-600 mt-1">{tier.trial_days} days trial</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setSelectedPlugin(plugin)}
+                  >
+                    View Details
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => onInstall(plugin.id)}
+                    disabled={loadingPluginId === plugin.id}
+                  >
+                    {loadingPluginId === plugin.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Installing...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Install
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {pluginsToShow.length === 0 && (
+      {pluginsToShow.length === 0 && !loading && (
         <div className="text-center py-12">
           <Download className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-muted-foreground">No plugins available in the marketplace</p>
         </div>
       )}
+
+      {/* Plugin Details Dialog */}
+      <Dialog open={selectedPlugin !== null} onOpenChange={() => setSelectedPlugin(null)}>
+        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              {selectedPlugin?.icon && (
+                <div className="text-4xl">{selectedPlugin.icon}</div>
+              )}
+              <div>
+                <DialogTitle className="text-2xl">{selectedPlugin?.name}</DialogTitle>
+                <DialogDescription className="mt-1">
+                  {selectedPlugin?.description}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            {selectedPlugin?.tiers && selectedPlugin.tiers.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3">Choose Your Plan</h4>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {selectedPlugin.tiers.map((tier) => (
+                    <Card key={tier.tier_id} className="relative">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">{tier.name}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div>
+                          <div className="text-2xl font-bold">
+                            {tier.price_monthly === null && tier.price_yearly === null && tier.price_lifetime === null
+                              ? 'Free'
+                              : formatPrice(tier.price_monthly || tier.price_yearly || tier.price_lifetime)}
+                          </div>
+                          {tier.price_monthly && <div className="text-xs text-muted-foreground">per month</div>}
+                          {tier.price_yearly && <div className="text-xs text-muted-foreground">per year</div>}
+                          {tier.price_lifetime && <div className="text-xs text-muted-foreground">one-time</div>}
+                        </div>
+                        {tier.trial_days > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            {tier.trial_days}-day trial
+                          </Badge>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium mb-2">Features:</p>
+                          <ul className="space-y-1">
+                            {tier.features.map((feature, idx) => (
+                              <li key={idx} className="text-sm flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <Button className="w-full" size="sm">
+                          Select {tier.name}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedPlugin(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

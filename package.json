@@ -62,6 +62,7 @@
 		"check": "tsc && vite build && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
 		"dev": "vite",
+		"initialize": "npm run build && curl -X POST http://localhost:8787/api/initialize",
 		"lint": "eslint .",
 		"preview": "npm run build && vite preview"
 	},

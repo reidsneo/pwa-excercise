@@ -16,8 +16,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Edit, Trash2, Eye, FileText } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, FileText, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePluginLicenses } from '@/contexts/PluginLicenseContext';
 
 interface BlogPost {
   id: number;
@@ -33,6 +34,7 @@ interface BlogPost {
 
 export function BlogPostsList() {
   const { hasPermission } = useAuth();
+  const { hasPluginLicense, hasPluginFeature } = usePluginLicenses();
   const navigate = useNavigate();
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,9 @@ export function BlogPostsList() {
       });
       if (response.ok) {
         fetchPosts();
+      } else if (response.status === 403) {
+        const error = await response.json();
+        alert(error.error || 'You do not have access to this feature');
       }
     } catch (error) {
       console.error('Failed to delete post:', error);
@@ -104,7 +109,7 @@ export function BlogPostsList() {
           <h1 className="text-3xl font-bold">Blog Posts</h1>
           <p className="text-muted-foreground">Manage your blog content</p>
         </div>
-        {hasPermission('blog', 'posts.create') && (
+        {hasPluginLicense('blog') && hasPermission('blog', 'posts.create') && (
           <Button onClick={() => navigate('/blog/new')}>
             <Plus className="w-4 h-4 mr-2" />
             New Post
@@ -152,12 +157,17 @@ export function BlogPostsList() {
             <div className="text-center py-12">
               <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
               <p className="text-muted-foreground mb-4">No posts found</p>
-              {hasPermission('blog', 'posts.create') && (
+              {hasPluginLicense('blog') && hasPermission('blog', 'posts.create') ? (
                 <Button onClick={() => navigate('/blog/new')}>
                   <Plus className="w-4 h-4 mr-2" />
                   Create your first post
                 </Button>
-              )}
+              ) : !hasPluginLicense('blog') ? (
+                <Button variant="outline" disabled>
+                  <Lock className="w-4 h-4 mr-2" />
+                  Blog plugin required
+                </Button>
+              ) : null}
             </div>
           ) : (
             <Table>
@@ -204,7 +214,7 @@ export function BlogPostsList() {
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        {hasPermission('blog', 'posts.edit') && (
+                        {hasPluginLicense('blog') && hasPermission('blog', 'posts.edit') && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -213,13 +223,23 @@ export function BlogPostsList() {
                             <Edit className="w-4 h-4" />
                           </Button>
                         )}
-                        {hasPermission('blog', 'posts.delete') && (
+                        {hasPluginLicense('blog') && hasPluginFeature('blog', 'posts.delete') && hasPermission('blog', 'posts.delete') && (
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDelete(post.id)}
                           >
                             <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {hasPluginLicense('blog') && !hasPluginFeature('blog', 'posts.delete') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled
+                            title="Delete posts requires a higher tier"
+                          >
+                            <Lock className="w-4 h-4 text-muted-foreground" />
                           </Button>
                         )}
                       </div>

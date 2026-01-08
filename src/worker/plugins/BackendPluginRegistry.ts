@@ -10,8 +10,8 @@ import type {
   PluginState,
   PluginLoadResult,
   PluginEvent,
-} from '@/shared/plugin';
-import { PluginStatus, PluginEventType } from '@/shared/plugin';
+} from '../../shared/plugin/index.ts';
+import { PluginStatus, PluginEventType } from '../../shared/plugin/index.ts';
 
 // -----------------------------------------------------------------------------
 // Hono Type Imports
@@ -74,6 +74,13 @@ class BackendPluginRegistryImpl {
     await this.loadPluginStates();
 
     this.initialized = true;
+  }
+
+  /**
+   * Check if the registry is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { UserApp } from "./apps/user/UserApp";
 import { AdminApp } from "./apps/admin/AdminApp";
 import { AuthProvider } from "./contexts/AuthContext";
+import { PluginLicenseProvider } from "./contexts/PluginLicenseContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -67,30 +68,32 @@ function App() {
 		<PluginInitializer>
 			<ToastProvider>
 				<AuthProvider>
-					<BrowserRouter>
-						<Routes>
-							{/* Core Routes */}
-							<Route path="/*" element={<UserApp />} />
-							<Route path="/login" element={<LoginPage />} />
-							<Route path="/register" element={<RegisterPage />} />
-							<Route
-								path="/admin/*"
-								element={
-									<ProtectedRoute requireAdmin={true}>
-										<AdminApp />
-									</ProtectedRoute>
-								}
-							/>
+					<PluginLicenseProvider>
+						<BrowserRouter>
+							<Routes>
+								{/* Core Routes */}
+								<Route path="/*" element={<UserApp />} />
+								<Route path="/login" element={<LoginPage />} />
+								<Route path="/register" element={<RegisterPage />} />
+								<Route
+									path="/admin/*"
+									element={
+										<ProtectedRoute requireAdmin={true}>
+											<AdminApp />
+										</ProtectedRoute>
+									}
+								/>
 
-							{/* Plugin Routes */}
-							{pluginRoutes.map((route: { path?: string; element?: React.ReactNode }, index: number) => (
-								<Route key={`plugin-${index}`} path={route.path || ''} element={route.element} />
-							))}
+								{/* Plugin Routes */}
+								{pluginRoutes.map((route: { path?: string; element?: React.ReactNode }, index: number) => (
+									<Route key={`plugin-${index}`} path={route.path || ''} element={route.element} />
+								))}
 
-							{/* Catch-all */}
-							<Route path="*" element={<Navigate to="/" replace />} />
-						</Routes>
-					</BrowserRouter>
+								{/* Catch-all */}
+								<Route path="*" element={<Navigate to="/" replace />} />
+							</Routes>
+						</BrowserRouter>
+					</PluginLicenseProvider>
 				</AuthProvider>
 			</ToastProvider>
 		</PluginInitializer>

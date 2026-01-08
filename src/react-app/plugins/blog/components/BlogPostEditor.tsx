@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Save, ArrowLeft, Eye } from 'lucide-react';
+import { Save, ArrowLeft, Eye, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePluginLicenses } from '@/contexts/PluginLicenseContext';
 
 interface BlogPost {
   id?: number;
@@ -38,6 +39,7 @@ interface Tag {
 
 export function BlogPostEditor() {
   const { hasPermission } = useAuth();
+  const { hasPluginLicense, hasPluginFeature } = usePluginLicenses();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
@@ -120,6 +122,16 @@ export function BlogPostEditor() {
   };
 
   const handleSubmit = async (publish = false) => {
+    if (!hasPluginLicense('blog')) {
+      alert('Blog plugin license required');
+      return;
+    }
+
+    if (publish && !hasPluginFeature('blog', 'posts.publish')) {
+      alert('Publishing posts requires a higher tier blog subscription');
+      return;
+    }
+
     if (!hasPermission('blog', 'posts.create') && !hasPermission('blog', 'posts.edit')) {
       alert('You do not have permission to save posts');
       return;
@@ -144,6 +156,9 @@ export function BlogPostEditor() {
       if (response.ok) {
         const data = await response.json();
         navigate(`/blog/${data.id}`);
+      } else if (response.status === 403) {
+        const error = await response.json();
+        alert(error.error || error.message || 'Failed to save post');
       } else {
         const error = await response.json();
         alert(error.error || 'Failed to save post');
@@ -222,12 +237,17 @@ export function BlogPostEditor() {
             <Save className="w-4 h-4 mr-2" />
             Save Draft
           </Button>
-          {hasPermission('blog', 'posts.publish') && (
+          {hasPluginLicense('blog') && hasPluginFeature('blog', 'posts.publish') && hasPermission('blog', 'posts.publish') ? (
             <Button onClick={() => handleSubmit(true)} disabled={saving}>
               <Save className="w-4 h-4 mr-2" />
               Publish
             </Button>
-          )}
+          ) : hasPluginLicense('blog') && !hasPluginFeature('blog', 'posts.publish') ? (
+            <Button variant="outline" disabled title="Publishing requires a higher tier">
+              <Lock className="w-4 h-4 mr-2" />
+              Publish
+            </Button>
+          ) : null}
         </div>
       </div>
 
