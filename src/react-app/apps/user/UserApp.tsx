@@ -14,7 +14,7 @@ interface BackendPluginState {
 }
 
 export function UserApp() {
-	const { user, logout } = useAuth();
+	const { user, tenant, logout } = useAuth();
 	const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
 	const [loading, setLoading] = useState(true);
 
@@ -47,61 +47,70 @@ export function UserApp() {
 		<div className="min-h-screen bg-background">
 			{/* Header */}
 			<header className="border-b">
-				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<h1 className="text-2xl font-bold">User Portal</h1>
-					<nav className="flex gap-4 items-center">
-						<Button variant="ghost" size="sm" asChild>
-							<Link to="/">
-								<Home className="w-4 h-4 mr-2" />
-								Home
-							</Link>
-						</Button>
-						{isBlogEnabled && (
+				<div className="container mx-auto px-4 py-4">
+					<div className="flex items-center justify-between">
+						<div>
+							<h1 className="text-2xl font-bold">User Portal</h1>
+							{tenant && (
+								<p className="text-sm text-muted-foreground">
+									Workspace: <span className="font-medium text-primary">{tenant.name}</span>
+								</p>
+							)}
+						</div>
+						<nav className="flex gap-4 items-center">
 							<Button variant="ghost" size="sm" asChild>
-								<Link to="/blog">
-									<BookOpen className="w-4 h-4 mr-2" />
-									Blog
+								<Link to="/">
+									<Home className="w-4 h-4 mr-2" />
+									Home
 								</Link>
 							</Button>
-						)}
-						<Button variant="ghost" size="sm" asChild>
-							<Link to="/about">
-								<Info className="w-4 h-4 mr-2" />
-								About
-							</Link>
-						</Button>
-						<Button variant="ghost" size="sm" asChild>
-							<Link to="/contact">
-								<Contact className="w-4 h-4 mr-2" />
-								Contact
-							</Link>
-						</Button>
-						<div className="w-px h-6 bg-border" />
-						{user ? (
-							<div className="flex items-center gap-3">
-								<div className="flex items-center gap-2 text-sm">
-									<User className="w-4 h-4" />
-									<span>{user.name}</span>
-								</div>
-								<Button variant="outline" size="sm" onClick={logout}>
-									<LogOut className="w-4 h-4 mr-2" />
-									Logout
-								</Button>
-							</div>
-						) : (
-							<div className="flex gap-2">
+							{isBlogEnabled && (
 								<Button variant="ghost" size="sm" asChild>
-									<Link to="/login">
-										<LogIn className="w-4 h-4 mr-2" />
-										Login
+									<Link to="/blog">
+										<BookOpen className="w-4 h-4 mr-2" />
+										Blog
 									</Link>
 								</Button>
-								<Button size="sm" asChild>
-									<Link to="/register">Sign Up</Link>
-								</Button>
-							</div>
-						)}
-					</nav>
+							)}
+							<Button variant="ghost" size="sm" asChild>
+								<Link to="/about">
+									<Info className="w-4 h-4 mr-2" />
+									About
+								</Link>
+							</Button>
+							<Button variant="ghost" size="sm" asChild>
+								<Link to="/contact">
+									<Contact className="w-4 h-4 mr-2" />
+									Contact
+								</Link>
+							</Button>
+							<div className="w-px h-6 bg-border" />
+							{user ? (
+								<div className="flex items-center gap-3">
+									<div className="flex items-center gap-2 text-sm">
+										<User className="w-4 h-4" />
+										<span>{user.name}</span>
+									</div>
+									<Button variant="outline" size="sm" onClick={logout}>
+										<LogOut className="w-4 h-4 mr-2" />
+										Logout
+									</Button>
+								</div>
+							) : (
+								<div className="flex gap-2">
+									<Button variant="ghost" size="sm" asChild>
+										<Link to="/login">
+											<LogIn className="w-4 h-4 mr-2" />
+											Login
+										</Link>
+									</Button>
+									<Button size="sm" asChild>
+										<Link to="/register">Sign Up</Link>
+									</Button>
+								</div>
+							)}
+						</nav>
+					</div>
 				</div>
 			</header>
 

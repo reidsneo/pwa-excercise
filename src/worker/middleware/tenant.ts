@@ -33,6 +33,15 @@ export interface License {
 }
 
 /**
+ * 🔥 Helper: Resolve tenant from request context
+ * Use everywhere (auth, plugins, routes) to get tenant ID
+ * This ensures consistent tenant resolution across the app
+ */
+export function resolveTenantFromRequest(c: TenantContext): string | null {
+  return c.get('tenantId') as string | null;
+}
+
+/**
  * Extract tenant from subdomain or custom domain
  * Examples:
  * - tenant-name-abc123.maindomain.com -> tenant
@@ -40,8 +49,9 @@ export interface License {
  * - customdomain.com -> tenant (if mapped)
  */
 function extractTenantFromHost(host: string, baseDomain: string): string | null {
-  // Remove port if present
+  // Remove port if present (IMPORTANT for local development)
   host = host.split(':')[0];
+  baseDomain = baseDomain.split(':')[0];
 
   // Check if it's a custom domain (not base domain)
   if (!host.endsWith(baseDomain)) {
@@ -60,6 +70,8 @@ function extractTenantFromHost(host: string, baseDomain: string): string | null 
 
 /**
  * Get tenant by slug or custom domain
+ * 🔥 Security: Always verify tenant exists in DB, never trust subdomain alone
+ * Tenant ID comes from DB, not from the slug
  */
 async function getTenantBySlugOrDomain(db: any, slugOrDomain: string): Promise<Tenant | null> {
   try {
@@ -134,6 +146,7 @@ async function hasPluginLicense(db: any, tenantId: string, pluginId: string): Pr
 /**
  * Tenant detection middleware
  * Extracts tenant from request and attaches to context
+ * 🔥 Multi-tenancy: Uses default tenant for main domain (master workspace)
  */
 export async function detectTenant(c: TenantContext, next: Next) {
   const host = c.req.header('host') || '';
@@ -163,11 +176,26 @@ export async function detectTenant(c: TenantContext, next: Next) {
       c.set('licensedPlugins', new Set());
     }
   } else {
-    // No tenant (main domain)
-    c.set('tenant', null);
-    c.set('tenantId', null);
-    c.set('licenses', []);
-    c.set('licensedPlugins', new Set());
+    // 🔥 Multi-tenancy: Use default tenant for main domain (master workspace)
+    const db = c.env.DB;
+    const defaultTenant = await getTenantBySlugOrDomain(db, 'default');
+
+    if (defaultTenant) {
+      // Get default tenant's licenses
+      const licenses = await getTenantLicenses(db, defaultTenant.id);
+
+      // Attach to context
+      c.set('tenant', defaultTenant);
+      c.set('tenantId', defaultTenant.id);
+      c.set('licenses', licenses);
+      c.set('licensedPlugins', new Set(licenses.map(l => l.plugin_id)));
+    } else {
+      // No default tenant exists yet
+      c.set('tenant', null);
+      c.set('tenantId', null);
+      c.set('licenses', []);
+      c.set('licensedPlugins', new Set());
+    }
   }
 
   await next();

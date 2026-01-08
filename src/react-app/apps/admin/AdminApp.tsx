@@ -25,7 +25,7 @@ interface BackendPluginState {
 }
 
 export function AdminApp() {
-	const { hasPermission, user } = useAuth();
+	const { hasPermission, user, tenant } = useAuth();
 	const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
 
 	// Fetch plugin states to check which plugins are enabled
@@ -148,8 +148,21 @@ export function AdminApp() {
 				<div className="flex-1">
 					<header className="border-b">
 						<div className="px-8 py-4 flex items-center justify-between">
-							<h2 className="text-lg font-semibold">Admin Dashboard</h2>
+							<div>
+								<h2 className="text-lg font-semibold">Admin Dashboard</h2>
+								{tenant && (
+									<p className="text-sm text-muted-foreground">
+										Workspace: <span className="font-medium text-primary">{tenant.name}</span>
+									</p>
+								)}
+							</div>
 							<div className="flex items-center gap-4">
+								{user && (
+									<div className="text-sm text-right">
+										<p className="font-medium">{user.name}</p>
+										<p className="text-muted-foreground">{user.email}</p>
+									</div>
+								)}
 								<Button variant="outline" size="sm">
 									<Settings className="w-4 h-4 mr-2" />
 									Profile

@@ -46,6 +46,19 @@ export const sessions = sqliteTable("sessions", {
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+// 🔥 Multi-tenancy: Junction table for user-tenant relationships
+// Allows users to belong to multiple tenants with different roles per tenant
+export const tenantUsers = sqliteTable("tenant_users", {
+	tenantId: text("tenant_id").notNull(), // FK enforced at DB level
+	userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+	role: text("role").notNull().default("member"), // "owner", "admin", "member", etc.
+	invitedBy: integer("invited_by").references(() => users.id),
+	joinedAt: integer("joined_at", { mode: "timestamp" }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type TenantUser = typeof tenantUsers.$inferSelect;
+export type NewTenantUser = typeof tenantUsers.$inferInsert;
+
 // Types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

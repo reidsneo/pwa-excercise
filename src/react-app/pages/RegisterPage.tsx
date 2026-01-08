@@ -4,18 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/contexts/AuthContext";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 
 export function RegisterPage() {
 	const navigate = useNavigate();
-	const { register } = useAuth();
 	const [name, setName] = useState("");
+	const [companyName, setCompanyName] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
+	const [success, setSuccess] = useState(false);
+	const [tenantSlug, setTenantSlug] = useState("");
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -35,14 +36,63 @@ export function RegisterPage() {
 		}
 
 		try {
-			await register(email, password, name);
-			navigate("/admin");
+			const response = await fetch("/api/auth/register", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ email, password, name, companyName }),
+			});
+
+			if (!response.ok) {
+				const err = await response.json();
+				throw new Error(err.error || "Registration failed");
+			}
+
+			const data = await response.json();
+
+			// Store token
+			localStorage.setItem("auth_token", data.token);
+
+			// Show success message with tenant info
+			setTenantSlug(data.tenantSlug || "");
+			setSuccess(true);
+
+			// Navigate after 2 seconds
+			setTimeout(() => {
+				navigate("/admin");
+			}, 2000);
 		} catch (err: unknown) {
 			setError(err instanceof Error ? err.message : "Registration failed");
 		} finally {
 			setIsLoading(false);
 		}
 	};
+
+	if (success) {
+		return (
+			<div className="min-h-screen flex items-center justify-center bg-background p-4">
+				<Card className="w-full max-w-md">
+					<CardHeader className="space-y-1 text-center">
+						<CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
+						<CardTitle className="text-2xl font-bold">Account Created!</CardTitle>
+						<CardDescription>
+							{tenantSlug && (
+								<>
+									Your workspace is ready at: <span className="font-mono text-primary">{tenantSlug}.localhost:8787</span>
+								</>
+							)}
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<p className="text-center text-sm text-muted-foreground">
+							Redirecting to dashboard...
+						</p>
+					</CardContent>
+				</Card>
+			</div>
+		);
+	}
 
 	return (
 		<div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -69,6 +119,18 @@ export function RegisterPage() {
 								required
 								disabled={isLoading}
 							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="companyName">Company Name (Optional)</Label>
+							<Input
+								id="companyName"
+								type="text"
+								placeholder="Acme Inc"
+								value={companyName}
+								onChange={(e) => setCompanyName(e.target.value)}
+								disabled={isLoading}
+							/>
+							<p className="text-xs text-muted-foreground">Used for your workspace URL</p>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="email">Email</Label>

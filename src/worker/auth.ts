@@ -9,6 +9,7 @@ export interface JWTPayload {
 	userId: number;
 	email: string;
 	roleId: number | null;
+	tenantId?: string; // 🔥 Security: Include tenant context from login per Cloudflare guide
 }
 
 async function getSecretKey(env: Env): Promise<Uint8Array> {
@@ -23,12 +24,13 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 	return await bcrypt.compare(password, hash);
 }
 
-export async function generateToken(user: User, env: Env): Promise<string> {
+export async function generateToken(user: User, env: Env, tenantId?: string): Promise<string> {
 	const secretKey = await getSecretKey(env);
 	const payload: JWTPayload = {
 		userId: user.id,
 		email: user.email,
 		roleId: user.roleId,
+		tenantId, // 🔥 Include tenant context from request
 	};
 
 	const token = await new SignJWT({ ...payload })
@@ -90,10 +92,19 @@ export async function getCurrentUser(request: Request, env: Env): Promise<User |
 	return user || null;
 }
 
-export function createSessionCookie(token: string): string {
-	return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`;
+/**
+ * 🔥 Create session cookie with wildcard domain support
+ * Per Cloudflare guide: Domain=.maindomain.com for subdomain sharing
+ */
+export function createSessionCookie(token: string, baseDomain?: string): string {
+	const domain = baseDomain ? `; Domain=.${baseDomain}` : '';
+	return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax${domain}; Max-Age=${7 * 24 * 60 * 60}`;
 }
 
-export function createClearSessionCookie(): string {
-	return `session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+/**
+ * 🔥 Create clear session cookie with wildcard domain support
+ */
+export function createClearSessionCookie(baseDomain?: string): string {
+	const domain = baseDomain ? `; Domain=.${baseDomain}` : '';
+	return `session=; Path=/; HttpOnly; Secure; SameSite=Lax${domain}; Max-Age=0`;
 }

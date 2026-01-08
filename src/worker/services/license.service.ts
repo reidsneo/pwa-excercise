@@ -184,7 +184,8 @@ export async function checkExpiredLicenses(db: any): Promise<number> {
  * Get all available plugins with pricing tiers
  */
 export async function getMarketplacePlugins(db: any): Promise<any[]> {
-  const plugins = await db
+  // Get all plugins first
+  const pluginsResult = await db
     .prepare(`
       SELECT
         p.id,
@@ -192,27 +193,62 @@ export async function getMarketplacePlugins(db: any): Promise<any[]> {
         p.description,
         p.version,
         p.author,
-        GROUP_CONCAT(
-          JSON_OBJECT(
-            'tier_id', pt.tier_id,
-            'name', pt.name,
-            'features', pt.features,
-            'price_monthly', pt.price_monthly,
-            'price_yearly', pt.price_yearly,
-            'price_lifetime', pt.price_lifetime,
-            'trial_days', pt.trial_days
-          )
-        ) as tiers
+        p.category,
+        p.icon,
+        p.featured,
+        p.downloads,
+        p.rating
       FROM plugins p
-      LEFT JOIN plugin_tiers pt ON p.id = pt.plugin_id
-      GROUP BY p.id
     `)
     .all();
 
-  return (plugins.results || []).map((plugin: any) => ({
-    ...plugin,
-    tiers: plugin.tiers ? JSON.parse(`[${plugin.tiers}]`) : [],
-  }));
+  const plugins = pluginsResult.results || [];
+
+  // For each plugin, get its tiers
+  const result = [];
+  for (const plugin of plugins) {
+    const tiersResult = await db
+      .prepare(`
+        SELECT
+          tier_id,
+          name,
+          features,
+          price_monthly,
+          price_yearly,
+          price_lifetime,
+          trial_days
+        FROM plugin_tiers
+        WHERE plugin_id = ?
+        ORDER BY
+          CASE tier_id
+            WHEN 'free' THEN 1
+            WHEN 'trial' THEN 2
+            WHEN 'monthly' THEN 3
+            WHEN 'yearly' THEN 4
+            WHEN 'lifetime' THEN 5
+            ELSE 6
+          END
+      `)
+      .bind(plugin.id)
+      .all();
+
+    const tiers = (tiersResult.results || []).map((row: any) => ({
+      tier_id: row.tier_id,
+      name: row.name,
+      features: JSON.parse(row.features || '[]'),
+      price_monthly: row.price_monthly,
+      price_yearly: row.price_yearly,
+      price_lifetime: row.price_lifetime,
+      trial_days: row.trial_days,
+    }));
+
+    result.push({
+      ...plugin,
+      tiers,
+    });
+  }
+
+  return result;
 }
 
 /**

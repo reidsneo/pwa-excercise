@@ -8,6 +8,14 @@ interface Permission {
 	action: string;
 }
 
+interface Tenant {
+	id: string;
+	name: string;
+	slug: string;
+	plan: string;
+	status: string;
+}
+
 interface User {
 	id: number;
 	email: string;
@@ -23,6 +31,7 @@ interface User {
 
 interface AuthContextType {
 	user: User | null;
+	tenant: Tenant | null;
 	token: string | null;
 	isLoading: boolean;
 	isAuthenticated: boolean;
@@ -38,6 +47,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null);
+	const [tenant, setTenant] = useState<Tenant | null>(null);
 	const [token, setToken] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const hasFetchedRef = useRef(false);
@@ -61,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		async function fetchUser() {
 			if (!token) {
 				setUser(null);
+				setTenant(null);
 				setIsLoading(false);
 				hasFetchedRef.current = false;
 				return;
@@ -90,8 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					const data = JSON.parse(responseText);
 					console.log("User data received:", data);
 					console.log("User object:", data.user);
+					console.log("Tenant object:", data.tenant);
 					if (isMounted) {
 						setUser(data.user);
+						setTenant(data.tenant || null);
 					}
 				} else {
 					// Token is invalid, clear it
@@ -100,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 						localStorage.removeItem("auth_token");
 						setToken(null);
 						setUser(null);
+						setTenant(null);
 						hasFetchedRef.current = false;
 					}
 				}
@@ -107,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				console.error("Failed to fetch user:", error);
 				if (isMounted) {
 					setUser(null);
+					setTenant(null);
 					hasFetchedRef.current = false;
 				}
 			} finally {
@@ -175,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			console.error("Logout error:", error);
 		} finally {
 			setUser(null);
+			setTenant(null);
 			setToken(null);
 			localStorage.removeItem("auth_token");
 		}
@@ -192,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		if (response.ok) {
 			const data = await response.json();
 			setUser(data.user);
+			setTenant(data.tenant || null);
 		}
 	};
 
@@ -213,6 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		<AuthContext.Provider
 			value={{
 				user,
+				tenant,
 				token,
 				isLoading,
 				isAuthenticated: !!user,

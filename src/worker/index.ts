@@ -59,8 +59,16 @@ async function initializeDatabase(env: Env) {
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS role_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE, permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE, UNIQUE(role_id, permission_id));");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
 
+		// 🔥 Multi-tenancy: User-Tenant relationships
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS tenant_users (tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL DEFAULT 'member', invited_by INTEGER REFERENCES users(id), joined_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), PRIMARY KEY (tenant_id, user_id));");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_tenant_users_user ON tenant_users(user_id);");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_tenant_users_role ON tenant_users(role);");
+
 		// Plugin management tables
-		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_states (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'installed', version TEXT NOT NULL, enabled_at INTEGER, disabled_at INTEGER, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
+		// 🔥 Multi-tenancy: Drop old plugin_states and recreate with tenant_id
+		await env.DB.exec("DROP TABLE IF EXISTS plugin_states;");
+		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_states (tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'installed', version TEXT NOT NULL, enabled_at INTEGER, disabled_at INTEGER, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), PRIMARY KEY (tenant_id, id));");
+		await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_plugin_states_tenant ON plugin_states(tenant_id);");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugin_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, plugin_id TEXT NOT NULL, version TEXT NOT NULL, applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), UNIQUE(plugin_id, version));");
 		await env.DB.exec("CREATE TABLE IF NOT EXISTS plugins (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, version TEXT NOT NULL, author TEXT, category TEXT, icon TEXT, featured INTEGER DEFAULT 0, downloads INTEGER DEFAULT 0, rating INTEGER DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')));");
 
@@ -121,7 +129,7 @@ app.get("/api/", (c) => c.json({ name: "Cloudflare", status: "ok" }));
 
 // Auth routes
 app.post("/api/auth/register", async (c) => {
-	const { email, password, name } = await c.req.json();
+	const { email, password, name, companyName } = await c.req.json();
 
 	if (!email || !password || !name) {
 		return c.json({ error: "Email, password, and name are required" }, 400);
@@ -149,11 +157,65 @@ app.post("/api/auth/register", async (c) => {
 		isActive: true,
 	});
 
-	// Generate token
-	const token = await auth.generateToken(newUser, c.env);
+	// 🔥 Get tenant from context for JWT
+	let tenantId = c.get('tenantId') as string | undefined;
+
+	// 🔥 If no tenant context (main domain), create a new tenant for the user
+	if (!tenantId) {
+		// Generate a unique tenant slug from company name or email
+		const baseSlug = (companyName || name || email.split('@')[0])
+			.toLowerCase()
+			.trim()
+			.replace(/[^\w\s-]/g, '')
+			.replace(/[\s_-]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+
+		// Ensure slug is unique by appending a random suffix if needed
+		let tenantSlug = baseSlug;
+		let slugExists = await c.env.DB.prepare("SELECT id FROM tenants WHERE slug = ?").bind(tenantSlug).first();
+		let suffix = 1;
+
+		while (slugExists) {
+			tenantSlug = `${baseSlug}-${suffix}`;
+			slugExists = await c.env.DB.prepare("SELECT id FROM tenants WHERE slug = ?").bind(tenantSlug).first();
+			suffix++;
+		}
+
+		// Create tenant
+		tenantId = crypto.randomUUID();
+		const tenantName = companyName || `${name}'s Workspace`;
+
+		await c.env.DB.prepare(`
+			INSERT INTO tenants (id, name, slug, plan, status)
+			VALUES (?, ?, ?, 'free', 'active')
+		`).bind(tenantId, tenantName, tenantSlug).run();
+
+		// Link user to tenant as owner
+		await c.env.DB.prepare(`
+			INSERT INTO tenant_users (tenant_id, user_id, role, joined_at)
+			VALUES (?, ?, 'owner', strftime('%s', 'now'))
+		`).bind(tenantId, newUser.id).run();
+
+		// 🔥 Enable blog plugin for new tenant
+		const blogPluginId = 'blog';
+		await c.env.DB.prepare(`
+			INSERT INTO plugin_licenses (id, tenant_id, plugin_id, plan, status, features, created_at)
+			VALUES (?, ?, ?, 'free', 'active', '[]', strftime('%s', 'now'))
+		`).bind(crypto.randomUUID(), tenantId, blogPluginId).run();
+	}
+
+	// Generate token with tenant context
+	const token = await auth.generateToken(newUser, c.env, tenantId);
 
 	// Create session
 	await db.createSession(database, newUser.id, auth.getSessionExpirationDate());
+
+	// Get tenant slug if tenant was created
+	let tenantSlug: string | undefined;
+	if (tenantId) {
+		const tenant = await c.env.DB.prepare("SELECT slug FROM tenants WHERE id = ?").bind(tenantId).first() as { slug: string } | null;
+		tenantSlug = tenant?.slug;
+	}
 
 	return c.json({
 		user: {
@@ -163,6 +225,7 @@ app.post("/api/auth/register", async (c) => {
 			roleId: newUser.roleId,
 		},
 		token,
+		tenantSlug,
 	});
 });
 
@@ -189,8 +252,11 @@ app.post("/api/auth/login", async (c) => {
 		return c.json({ error: "Invalid credentials" }, 401);
 	}
 
-	// Generate token
-	const token = await auth.generateToken(user, c.env);
+	// 🔥 Get tenant from context for JWT
+	const tenantId = c.get('tenantId') as string | undefined;
+
+	// Generate token with tenant context
+	const token = await auth.generateToken(user, c.env, tenantId);
 
 	// Create session
 	await db.createSession(database, user.id, auth.getSessionExpirationDate());
@@ -243,6 +309,24 @@ app.get("/api/auth/me", async (c) => {
 
 	const tenant = c.get('tenant');
 	const licenses = c.get('licenses') || [];
+
+	// 🔥 Security: Validate that JWT tenant matches request tenant
+	// Prevents cross-tenant token usage
+	if (payload.tenantId) {
+		const requestTenantId = c.get('tenantId') as string | undefined;
+
+		if (payload.tenantId !== requestTenantId) {
+			console.error('Cross-tenant access attempt:', {
+				jwtTenantId: payload.tenantId,
+				requestTenantId: requestTenantId || 'none',
+				userId: payload.userId,
+			});
+			return c.json({
+				error: "Unauthorized",
+				message: "This session is not valid for the current workspace. Please login again.",
+			}, 403);
+		}
+	}
 
 	return c.json({
 		user: {
@@ -533,7 +617,43 @@ const saasRoutes = createSaaSRoutes();
 // Get all plugins
 app.get("/api/plugins", async (c) => {
 	const plugins = BackendPluginRegistry.getAllPlugins();
-	const states = BackendPluginRegistry.getAllPluginStates();
+
+	// 🔥 Multi-tenancy: Get plugin states for current tenant only
+	const tenantId = c.get('tenantId') as string | undefined;
+	const states: Array<{
+		id: string;
+		status: string;
+		version: string;
+		enabledAt: number | null;
+		disabledAt: number | null;
+		createdAt: number;
+		updatedAt: number;
+	}> = [];
+
+	if (tenantId) {
+		// Fetch tenant-specific plugin states from database
+		const result = await c.env.DB
+			.prepare(`
+				SELECT id, status, version, enabled_at, disabled_at, created_at, updated_at
+				FROM plugin_states
+				WHERE tenant_id = ?
+			`)
+			.bind(tenantId)
+			.all();
+
+		const rows = result.results || [];
+		for (const row of rows) {
+			states.push({
+				id: (row as { id: string }).id,
+				status: (row as { status: string }).status,
+				version: (row as { version: string }).version,
+				enabledAt: (row as { enabled_at: number | null }).enabled_at,
+				disabledAt: (row as { disabled_at: number | null }).disabled_at,
+				createdAt: (row as { created_at: number }).created_at,
+				updatedAt: (row as { updated_at: number }).updated_at,
+			});
+		}
+	}
 
 	return c.json({
 		plugins: plugins.map((p) => ({
@@ -577,10 +697,17 @@ app.post("/api/plugins/install", async (c) => {
 		return c.json({ error: "pluginId is required" }, 400);
 	}
 
-	// Check if plugin is already installed in the database
+	// 🔥 Multi-tenancy: Get tenant from context
+	const tenant = c.get('tenant') as { id: string } | null;
+	if (!tenant) {
+		return c.json({ error: "Tenant not found" }, 404);
+	}
+	const tenantId = tenant.id;
+
+	// Check if plugin is already installed for this tenant
 	const existing = await c.env.DB
-		.prepare("SELECT id FROM plugin_states WHERE id = ?")
-		.bind(pluginId)
+		.prepare("SELECT id FROM plugin_states WHERE tenant_id = ? AND id = ?")
+		.bind(tenantId, pluginId)
 		.first();
 
 	if (existing) {
@@ -610,17 +737,17 @@ app.post("/api/plugins/install", async (c) => {
 		}
 	}
 
-	// Add plugin state to database as 'installed'
+	// Add plugin state to database as 'installed' for this tenant
 	try {
 		await c.env.DB
 			.prepare(`
-				INSERT INTO plugin_states (id, status, version, updated_at)
-				VALUES (?, 'installed', ?, strftime('%s', 'now'))
+				INSERT INTO plugin_states (tenant_id, id, status, version, updated_at)
+				VALUES (?, ?, 'installed', ?, strftime('%s', 'now'))
 			`)
-			.bind(pluginId, registeredPlugin.version)
+			.bind(tenantId, pluginId, registeredPlugin.version)
 			.run();
 
-		console.log(`[Plugin Install] Plugin ${pluginId} installed successfully`);
+		console.log(`[Plugin Install] Plugin ${pluginId} installed successfully for tenant ${tenantId}`);
 
 		return c.json({ success: true, pluginId, version: registeredPlugin.version });
 	} catch (error) {
@@ -648,6 +775,13 @@ app.post("/api/plugins/enable", async (c) => {
 		return c.json({ error: "pluginId is required" }, 400);
 	}
 
+	// 🔥 Multi-tenancy: Get tenant from context
+	const tenant = c.get('tenant') as { id: string } | null;
+	if (!tenant) {
+		return c.json({ error: "Tenant not found" }, 404);
+	}
+	const tenantId = tenant.id;
+
 	try {
 		const result = await BackendPluginRegistry.enable(pluginId as PluginId);
 		console.log('[Plugin Enable] Result:', result);
@@ -667,14 +801,14 @@ app.post("/api/plugins/enable", async (c) => {
 			return c.json({ error: `Migration failed: ${migrationError instanceof Error ? migrationError.message : String(migrationError)}` }, 500);
 		}
 
-		// Update plugin state in database
+		// Update plugin state in database for this tenant
 		const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
 		await c.env.DB
 			.prepare(`
-				INSERT OR REPLACE INTO plugin_states (id, status, version, enabled_at, disabled_at, updated_at)
-				VALUES (?, 'enabled', ?, strftime('%s', 'now'), NULL, strftime('%s', 'now'))
+				INSERT OR REPLACE INTO plugin_states (tenant_id, id, status, version, enabled_at, disabled_at, updated_at)
+				VALUES (?, ?, 'enabled', ?, strftime('%s', 'now'), NULL, strftime('%s', 'now'))
 			`)
-			.bind(pluginId, plugin?.version || '1.0.0')
+			.bind(tenantId, pluginId, plugin?.version || '1.0.0')
 			.run();
 
 		console.log('[Plugin Enable] SUCCESS');
@@ -700,17 +834,24 @@ app.post("/api/plugins/disable", async (c) => {
 		return c.json({ error: "pluginId is required" }, 400);
 	}
 
+	// 🔥 Multi-tenancy: Get tenant from context
+	const tenant = c.get('tenant') as { id: string } | null;
+	if (!tenant) {
+		return c.json({ error: "Tenant not found" }, 404);
+	}
+	const tenantId = tenant.id;
+
 	const result = await BackendPluginRegistry.disable(pluginId as PluginId);
 
 	if (result.success) {
-		// Update plugin state in database
+		// Update plugin state in database for this tenant
 		const plugin = BackendPluginRegistry.getPlugin(pluginId as PluginId);
 		await c.env.DB
 			.prepare(`
-				INSERT OR REPLACE INTO plugin_states (id, status, version, disabled_at, updated_at)
-				VALUES (?, 'disabled', ?, strftime('%s', 'now'), strftime('%s', 'now'))
+				INSERT OR REPLACE INTO plugin_states (tenant_id, id, status, version, disabled_at, updated_at)
+				VALUES (?, ?, 'disabled', ?, strftime('%s', 'now'), strftime('%s', 'now'))
 			`)
-			.bind(pluginId, plugin?.version || '1.0.0')
+			.bind(tenantId, pluginId, plugin?.version || '1.0.0')
 			.run();
 
 		console.log('[Plugin Disable] SUCCESS');
@@ -736,19 +877,70 @@ app.post("/api/plugins/uninstall", async (c) => {
 		return c.json({ error: "pluginId is required" }, 400);
 	}
 
-	// Rollback migrations before uninstalling
-	await rollbackPluginMigrations(pluginId, c.env);
+	// Get tenant from context
+	const tenant = c.get('tenant');
+	if (!tenant) {
+		return c.json({ error: "Tenant not found" }, 404);
+	}
 
-	await BackendPluginRegistry.unregister(pluginId as PluginId);
+	const tenantId = tenant.id;
+	console.log('[Plugin Uninstall] Tenant ID:', tenantId);
 
-	// Remove plugin state from database
-	await c.env.DB
-		.prepare("DELETE FROM plugin_states WHERE id = ?")
-		.bind(pluginId)
-		.run();
+	// Delete tenant-specific data for this plugin
+	try {
+		if (pluginId === '550e8400-e29b-41d4-a716-446655440001') {
+			// Blog plugin - delete all tenant-specific blog data
+			console.log('[Plugin Uninstall] Deleting blog data for tenant:', tenantId);
 
-	console.log('[Plugin Uninstall] SUCCESS');
-	return c.json({ success: true });
+			// Delete in correct order due to foreign key constraints
+			await c.env.DB.prepare("DELETE FROM blog_post_tags WHERE tenant_id = ?").bind(tenantId).run();
+			await c.env.DB.prepare("DELETE FROM blog_post_categories WHERE tenant_id = ?").bind(tenantId).run();
+			await c.env.DB.prepare("DELETE FROM blog_posts WHERE tenant_id = ?").bind(tenantId).run();
+			await c.env.DB.prepare("DELETE FROM blog_tags WHERE tenant_id = ?").bind(tenantId).run();
+			await c.env.DB.prepare("DELETE FROM blog_categories WHERE tenant_id = ?").bind(tenantId).run();
+
+			console.log('[Plugin Uninstall] Deleted blog data for tenant:', tenantId);
+		}
+
+		// Remove plugin license for this tenant
+		await c.env.DB
+			.prepare("DELETE FROM plugin_licenses WHERE tenant_id = ? AND plugin_id = ?")
+			.bind(tenantId, pluginId)
+			.run();
+
+		// 🔥 Multi-tenancy: Delete plugin state for this tenant only
+		await c.env.DB
+			.prepare("DELETE FROM plugin_states WHERE tenant_id = ? AND id = ?")
+			.bind(tenantId, pluginId)
+			.run();
+
+		// Check if any tenant still has this plugin installed
+		const remainingStates = await c.env.DB
+			.prepare("SELECT COUNT(*) as count FROM plugin_states WHERE id = ?")
+			.bind(pluginId)
+			.first();
+
+		const remainingCount = (remainingStates?.count as number) || 0;
+
+		if (remainingCount === 0) {
+			// No tenants have this plugin installed, clean up tables and unregister
+			console.log('[Plugin Uninstall] No remaining tenants, cleaning up plugin');
+
+			// Run rollback migrations to drop tables
+			await rollbackPluginMigrations(pluginId, c.env);
+
+			// Unregister plugin from registry
+			await BackendPluginRegistry.unregister(pluginId as PluginId);
+		} else {
+			console.log(`[Plugin Uninstall] ${remainingCount} tenant(s) still have this plugin installed`);
+		}
+
+		console.log('[Plugin Uninstall] SUCCESS');
+		return c.json({ success: true });
+	} catch (error) {
+		console.error('[Plugin Uninstall] Error:', error);
+		return c.json({ error: "Failed to uninstall plugin" }, 500);
+	}
 });
 
 // Seed blog sample data (development helper)
@@ -994,6 +1186,42 @@ app.post("/api/saas/seed-plugins", async (c) => {
 	}
 });
 
+// Delete all database tables and start fresh (DANGEROUS - development only!)
+app.delete("/api/initialize", async (c) => {
+	console.log('[Initialize] 🗑️  DELETING ALL DATABASE TABLES...');
+
+	const db = c.env.DB;
+
+	try {
+		// Get all tables
+		const tables = await db.prepare(`
+			SELECT name FROM sqlite_master
+			WHERE type='table' AND name NOT LIKE 'sqlite_%'
+		`).all();
+
+		const tableNames = (tables.results || []).map((t) => (t as { name: string }).name);
+
+		// Drop all tables
+		for (const tableName of tableNames) {
+			console.log(`[Initialize] Dropping table: ${tableName}`);
+			await db.prepare(`DROP TABLE IF EXISTS ${tableName}`).run();
+		}
+
+		console.log('[Initialize] ✅ All tables deleted successfully');
+		return c.json({
+			success: true,
+			message: `Deleted ${tableNames.length} tables`,
+			tables: tableNames
+		});
+	} catch (error) {
+		console.error('[Initialize] Error deleting tables:', error);
+		return c.json({
+			error: 'Failed to delete tables',
+			details: error instanceof Error ? error.message : String(error)
+		}, 500);
+	}
+});
+
 // Initialize all database and run migrations (development helper)
 app.post("/api/initialize", async (c) => {
 	console.log('[Initialize] Starting full initialization...');
@@ -1003,6 +1231,90 @@ app.post("/api/initialize", async (c) => {
 	try {
 		// Step 1: Initialize core database tables
 		await initializeDatabase(c.env);
+
+		// Step 1.5: Create default/master tenant
+		console.log('[Initialize] Creating default tenant...');
+		const defaultTenantId = 'default';
+		const defaultTenantExists = await db.prepare("SELECT id FROM tenants WHERE id = ?").bind(defaultTenantId).first();
+
+		if (!defaultTenantExists) {
+			await db.prepare(`
+				INSERT INTO tenants (id, name, slug, plan, status)
+				VALUES (?, 'Master Workspace', 'default', 'premium', 'active')
+			`).bind(defaultTenantId).run();
+			console.log('[Initialize] Default tenant created');
+		}
+
+		// Step 1.6: Create default admin accounts for master tenant and tenant-2
+		console.log('[Initialize] Creating default admin accounts...');
+		const importAuth = await import('bcryptjs');
+		const bcrypt = importAuth.default || importAuth;
+
+		// Create admin account for master tenant (default)
+		const masterAdminEmail = 'admin@localhost.dev';
+		const masterAdminExists = await db.prepare("SELECT id FROM users WHERE email = ?").bind(masterAdminEmail).first();
+
+		if (!masterAdminExists) {
+			const masterAdminPassword = await bcrypt.hash('admin123', 10);
+
+			// Create the admin user with role_id = 1 (id is auto-increment)
+			await db.prepare(`
+				INSERT INTO users (email, password_hash, name, role_id, is_active, created_at, updated_at)
+				VALUES (?, ?, ?, 1, 1, strftime('%s', 'now'), strftime('%s', 'now'))
+			`).bind(masterAdminEmail, masterAdminPassword, 'Master Admin').run();
+
+			// Get the auto-generated user id and link to default tenant
+			const userIdResult = await db.prepare("SELECT id FROM users WHERE email = ?").bind(masterAdminEmail).first() as { id: number } | null;
+			if (userIdResult) {
+				await db.prepare(`
+					INSERT INTO tenant_users (tenant_id, user_id, role, joined_at)
+					VALUES (?, ?, 'owner', strftime('%s', 'now'))
+				`).bind(defaultTenantId, userIdResult.id).run();
+			}
+
+			console.log('[Initialize] Master admin account created:', masterAdminEmail);
+		}
+
+		// Create tenant-2 if it doesn't exist
+		const tenant2Slug = 'tenant-2';
+		const tenant2Exists = await db.prepare("SELECT id FROM tenants WHERE slug = ?").bind(tenant2Slug).first() as { id: string } | null;
+
+		let tenant2Id: string;
+		if (!tenant2Exists) {
+			tenant2Id = crypto.randomUUID();
+			await db.prepare(`
+				INSERT INTO tenants (id, name, slug, plan, status)
+				VALUES (?, 'Tenant 2 Workspace', 'tenant-2', 'free', 'active')
+			`).bind(tenant2Id).run();
+			console.log('[Initialize] Tenant-2 created');
+		} else {
+			tenant2Id = tenant2Exists.id;
+		}
+
+		// Create admin account for tenant-2
+		const tenant2AdminEmail = 'admin@tenant-2.dev';
+		const tenant2AdminExists = await db.prepare("SELECT id FROM users WHERE email = ?").bind(tenant2AdminEmail).first();
+
+		if (!tenant2AdminExists) {
+			const tenant2AdminPassword = await bcrypt.hash('admin123', 10);
+
+			// Create the admin user with role_id = 1 (id is auto-increment)
+			await db.prepare(`
+				INSERT INTO users (email, password_hash, name, role_id, is_active, created_at, updated_at)
+				VALUES (?, ?, ?, 1, 1, strftime('%s', 'now'), strftime('%s', 'now'))
+			`).bind(tenant2AdminEmail, tenant2AdminPassword, 'Tenant 2 Admin').run();
+
+			// Get the auto-generated user id and link to tenant-2
+			const tenant2UserResult = await db.prepare("SELECT id FROM users WHERE email = ?").bind(tenant2AdminEmail).first() as { id: number } | null;
+			if (tenant2UserResult) {
+				await db.prepare(`
+					INSERT INTO tenant_users (tenant_id, user_id, role, joined_at)
+					VALUES (?, ?, 'owner', strftime('%s', 'now'))
+				`).bind(tenant2Id, tenant2UserResult.id).run();
+			}
+
+			console.log('[Initialize] Tenant-2 admin account created:', tenant2AdminEmail);
+		}
 
 		// Step 2: Seed plugin marketplace
 		console.log('[Initialize] Seeding plugin marketplace...');
@@ -1024,10 +1336,11 @@ app.post("/api/initialize", async (c) => {
 
 		// Step 3: Seed plugin tiers
 		console.log('[Initialize] Seeding plugin tiers...');
+		const blogPluginId = '550e8400-e29b-41d4-a716-446655440001';
 		await db.prepare(`
 			INSERT OR REPLACE INTO plugin_tiers (plugin_id, tier_id, name, features, price_monthly, price_yearly, price_lifetime, trial_days) VALUES
 			(
-				'blog',
+				?,
 				'free',
 				'Blog Free',
 				'["posts.view", "posts.create", "posts.edit", "categories.view", "tags.view"]',
@@ -1037,7 +1350,7 @@ app.post("/api/initialize", async (c) => {
 				0
 			),
 			(
-				'blog',
+				?,
 				'trial',
 				'Blog Trial',
 				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage"]',
@@ -1047,7 +1360,7 @@ app.post("/api/initialize", async (c) => {
 				14
 			),
 			(
-				'blog',
+				?,
 				'monthly',
 				'Blog Pro Monthly',
 				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
@@ -1057,7 +1370,7 @@ app.post("/api/initialize", async (c) => {
 				0
 			),
 			(
-				'blog',
+				?,
 				'yearly',
 				'Blog Pro Yearly',
 				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
@@ -1067,7 +1380,7 @@ app.post("/api/initialize", async (c) => {
 				0
 			),
 			(
-				'blog',
+				?,
 				'lifetime',
 				'Blog Lifetime',
 				'["posts.view", "posts.create", "posts.edit", "posts.delete", "posts.publish", "categories.manage", "tags.manage", "settings.manage", "analytics.view"]',
@@ -1076,11 +1389,10 @@ app.post("/api/initialize", async (c) => {
 				49999,
 				0
 			)
-		`).run();
+		`).bind(blogPluginId, blogPluginId, blogPluginId, blogPluginId, blogPluginId).run();
 
 		// Step 4: Register and enable blog plugin with migrations
 		console.log('[Initialize] Registering and enabling blog plugin...');
-		const blogPluginId = '550e8400-e29b-41d4-a716-446655440001';
 
 		// Register the plugin
 		await BackendPluginRegistry.register(blogManifest);

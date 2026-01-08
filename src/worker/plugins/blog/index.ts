@@ -46,13 +46,14 @@ export const manifest: BackendPluginManifest = {
   migrations: [
     {
       version: '1.0.0',
-      name: 'Create blog tables',
+      name: 'Create blog tables with multi-tenancy support',
       up: `
-        -- Posts table
+        -- Posts table with tenant_id
         CREATE TABLE IF NOT EXISTS blog_posts (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id TEXT NOT NULL,
           title TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE,
+          slug TEXT NOT NULL,
           content TEXT NOT NULL,
           excerpt TEXT,
           author_id INTEGER NOT NULL,
@@ -62,80 +63,91 @@ export const manifest: BackendPluginManifest = {
           meta_description TEXT,
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
           updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-          published_at INTEGER
+          published_at INTEGER,
+          UNIQUE(tenant_id, slug)
         );
 
-        -- Categories table
+        -- Categories table with tenant_id
         CREATE TABLE IF NOT EXISTS blog_categories (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL UNIQUE,
-          slug TEXT NOT NULL UNIQUE,
+          tenant_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
           description TEXT,
-          parent_id INTEGER REFERENCES blog_categories(id) ON DELETE SET NULL,
-          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+          parent_id INTEGER,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          UNIQUE(tenant_id, slug)
+          -- Note: Parent-child tenant isolation enforced at application level
         );
 
-        -- Tags table
+        -- Tags table with tenant_id
         CREATE TABLE IF NOT EXISTS blog_tags (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL UNIQUE,
-          slug TEXT NOT NULL UNIQUE,
-          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+          tenant_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          UNIQUE(tenant_id, slug)
         );
 
         -- Post-Category junction table
         CREATE TABLE IF NOT EXISTS blog_post_categories (
-          post_id INTEGER NOT NULL REFERENCES blog_posts(id) ON DELETE CASCADE,
-          category_id INTEGER NOT NULL REFERENCES blog_categories(id) ON DELETE CASCADE,
-          PRIMARY KEY (post_id, category_id)
+          post_id INTEGER NOT NULL,
+          tenant_id TEXT NOT NULL,
+          category_id INTEGER NOT NULL,
+          PRIMARY KEY (post_id, category_id),
+          FOREIGN KEY (post_id) REFERENCES blog_posts(id) ON DELETE CASCADE,
+          FOREIGN KEY (category_id) REFERENCES blog_categories(id) ON DELETE CASCADE
+          -- Note: Tenant isolation enforced at application level
         );
 
         -- Post-Tag junction table
         CREATE TABLE IF NOT EXISTS blog_post_tags (
-          post_id INTEGER NOT NULL REFERENCES blog_posts(id) ON DELETE CASCADE,
-          tag_id INTEGER NOT NULL REFERENCES blog_tags(id) ON DELETE CASCADE,
-          PRIMARY KEY (post_id, tag_id)
+          post_id INTEGER NOT NULL,
+          tenant_id TEXT NOT NULL,
+          tag_id INTEGER NOT NULL,
+          PRIMARY KEY (post_id, tag_id),
+          FOREIGN KEY (post_id) REFERENCES blog_posts(id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES blog_tags(id) ON DELETE CASCADE
+          -- Note: Tenant isolation enforced at application level
         );
 
         -- Create indexes for better query performance
-        CREATE INDEX IF NOT EXISTS idx_blog_posts_status ON blog_posts(status);
-        CREATE INDEX IF NOT EXISTS idx_blog_posts_author ON blog_posts(author_id);
-        CREATE INDEX IF NOT EXISTS idx_blog_posts_published ON blog_posts(published_at);
-        CREATE INDEX IF NOT EXISTS idx_blog_posts_slug ON blog_posts(slug);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_tenant ON blog_posts(tenant_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_status ON blog_posts(tenant_id, status);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_author ON blog_posts(tenant_id, author_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_published ON blog_posts(tenant_id, published_at);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_slug ON blog_posts(tenant_id, slug);
+        CREATE INDEX IF NOT EXISTS idx_blog_categories_tenant ON blog_categories(tenant_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_tags_tenant ON blog_tags(tenant_id);
       `,
       down: `
-        DROP INDEX IF EXISTS idx_blog_posts_slug;
-        DROP INDEX IF EXISTS idx_blog_posts_published;
-        DROP INDEX IF EXISTS idx_blog_posts_author;
-        DROP INDEX IF EXISTS idx_blog_posts_status;
-        DROP TABLE IF EXISTS blog_post_tags;
-        DROP TABLE IF EXISTS blog_post_categories;
-        DROP TABLE IF EXISTS blog_tags;
-        DROP TABLE IF EXISTS blog_categories;
-        DROP TABLE IF EXISTS blog_posts;
+        -- Only drop tables if no tenant is using the blog plugin
+        -- This is handled by the uninstall endpoint
       `,
     },
     {
       version: '1.1.0',
-      name: 'Insert sample data',
+      name: 'Insert sample data for default tenant',
       up: `
-        -- Insert sample categories
-        INSERT OR IGNORE INTO blog_categories (name, slug, description) VALUES
-        ('Technology', 'technology', 'Latest tech news and insights'),
-        ('Programming', 'programming', 'Coding tutorials and best practices'),
-        ('Web Development', 'web-development', 'Frontend and backend development tips');
+        -- Insert sample categories for default tenant
+        INSERT OR IGNORE INTO blog_categories (tenant_id, name, slug, description) VALUES
+        ('default', 'Technology', 'technology', 'Latest tech news and insights'),
+        ('default', 'Programming', 'programming', 'Coding tutorials and best practices'),
+        ('default', 'Web Development', 'web-development', 'Frontend and backend development tips');
 
-        -- Insert sample tags
-        INSERT OR IGNORE INTO blog_tags (name, slug) VALUES
-        ('JavaScript', 'javascript'),
-        ('TypeScript', 'typescript'),
-        ('React', 'react'),
-        ('Cloudflare', 'cloudflare'),
-        ('Tutorial', 'tutorial');
+        -- Insert sample tags for default tenant
+        INSERT OR IGNORE INTO blog_tags (tenant_id, name, slug) VALUES
+        ('default', 'JavaScript', 'javascript'),
+        ('default', 'TypeScript', 'typescript'),
+        ('default', 'React', 'react'),
+        ('default', 'Cloudflare', 'cloudflare'),
+        ('default', 'Tutorial', 'tutorial');
 
-        -- Insert sample posts (assuming author_id = 1 exists)
-        INSERT OR IGNORE INTO blog_posts (title, slug, content, excerpt, author_id, status, published_at) VALUES
+        -- Insert sample posts for default tenant (assuming author_id = 1 exists)
+        INSERT OR IGNORE INTO blog_posts (tenant_id, title, slug, content, excerpt, author_id, status, published_at) VALUES
         (
+          'default',
           'Getting Started with Cloudflare Workers',
           'getting-started-with-cloudflare-workers',
           'Cloudflare Workers allow you to run JavaScript at the edge, closer to your users worldwide. In this tutorial, we''ll explore the basics of building serverless applications with Workers.
@@ -153,6 +165,7 @@ Let''s dive in and start building edge applications!',
           strftime('%s', 'now', '-7 days')
         ),
         (
+          'default',
           'TypeScript Best Practices for 2025',
           'typescript-best-practices-2025',
           'TypeScript has become the de facto standard for building large-scale JavaScript applications. Here are the best practices you should follow in 2025:
@@ -170,6 +183,7 @@ These practices will help you write more maintainable and type-safe code.',
           strftime('%s', 'now', '-5 days')
         ),
         (
+          'default',
           'Building a Plugin System with React',
           'building-plugin-system-with-react',
           'Plugin architectures enable extensibility and modularity in your applications. In this guide, we''ll build a dynamic plugin system using React.
@@ -187,29 +201,42 @@ Let''s create a flexible plugin system that scales with your application.',
           strftime('%s', 'now', '-3 days')
         );
 
-        -- Link posts with categories
-        INSERT OR IGNORE INTO blog_post_categories (post_id, category_id)
-        SELECT p.id, c.id FROM blog_posts p
+        -- Link posts with categories for default tenant
+        INSERT OR IGNORE INTO blog_post_categories (post_id, tenant_id, category_id)
+        SELECT p.id, p.tenant_id, c.id FROM blog_posts p
         CROSS JOIN blog_categories c
-        WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND c.slug = 'technology')
+        WHERE p.tenant_id = 'default'
+          AND c.tenant_id = 'default'
+          AND ((p.slug = 'getting-started-with-cloudflare-workers' AND c.slug = 'technology')
            OR (p.slug = 'typescript-best-practices-2025' AND c.slug = 'programming')
-           OR (p.slug = 'building-plugin-system-with-react' AND c.slug = 'web-development');
+           OR (p.slug = 'building-plugin-system-with-react' AND c.slug = 'web-development'));
 
-        -- Link posts with tags
-        INSERT OR IGNORE INTO blog_post_tags (post_id, tag_id)
-        SELECT p.id, t.id FROM blog_posts p
+        -- Link posts with tags for default tenant
+        INSERT OR IGNORE INTO blog_post_tags (post_id, tenant_id, tag_id)
+        SELECT p.id, p.tenant_id, t.id FROM blog_posts p
         CROSS JOIN blog_tags t
-        WHERE (p.slug = 'getting-started-with-cloudflare-workers' AND t.slug IN ('cloudflare', 'tutorial'))
+        WHERE p.tenant_id = 'default'
+          AND t.tenant_id = 'default'
+          AND ((p.slug = 'getting-started-with-cloudflare-workers' AND t.slug IN ('cloudflare', 'tutorial'))
            OR (p.slug = 'typescript-best-practices-2025' AND t.slug IN ('typescript', 'javascript'))
-           OR (p.slug = 'building-plugin-system-with-react' AND t.slug IN ('react', 'tutorial'));
+           OR (p.slug = 'building-plugin-system-with-react' AND t.slug IN ('react', 'tutorial')));
       `,
       down: `
-        -- Remove sample data (in reverse order of dependencies)
-        DELETE FROM blog_post_tags WHERE post_id IN (SELECT id FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react'));
-        DELETE FROM blog_post_categories WHERE post_id IN (SELECT id FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react'));
-        DELETE FROM blog_posts WHERE slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react');
-        DELETE FROM blog_tags WHERE slug IN ('javascript', 'typescript', 'react', 'cloudflare', 'tutorial');
-        DELETE FROM blog_categories WHERE slug IN ('technology', 'programming', 'web-development');
+        -- Remove sample data for default tenant (in reverse order of dependencies)
+        DELETE FROM blog_post_tags WHERE post_id IN (
+          SELECT id FROM blog_posts WHERE tenant_id = 'default'
+          AND slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react')
+        );
+        DELETE FROM blog_post_categories WHERE post_id IN (
+          SELECT id FROM blog_posts WHERE tenant_id = 'default'
+          AND slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react')
+        );
+        DELETE FROM blog_posts WHERE tenant_id = 'default'
+        AND slug IN ('getting-started-with-cloudflare-workers', 'typescript-best-practices-2025', 'building-plugin-system-with-react');
+        DELETE FROM blog_tags WHERE tenant_id = 'default'
+        AND slug IN ('javascript', 'typescript', 'react', 'cloudflare', 'tutorial');
+        DELETE FROM blog_categories WHERE tenant_id = 'default'
+        AND slug IN ('technology', 'programming', 'web-development');
       `,
     },
   ],
@@ -301,14 +328,16 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all published posts with filtering and pagination
   publicApp.get('/posts', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant | null;
+    const tenantId = tenant?.id || 'default';
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '10');
     const offset = (page - 1) * limit;
     const category = c.req.query('category');
     const tag = c.req.query('tag');
 
-    let whereClause = 'WHERE p.status = ?';
-    const params: any[] = ['published'];
+    let whereClause = 'WHERE p.status = ? AND p.tenant_id = ?';
+    const params: any[] = ['published', tenantId];
 
     if (category) {
       whereClause += ' AND cat.slug = ?';
@@ -328,10 +357,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           u.email as author_email
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
-        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
-        LEFT JOIN blog_categories cat ON pc.category_id = cat.id
-        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
-        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
+        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id AND pc.tenant_id = p.tenant_id
+        LEFT JOIN blog_categories cat ON pc.category_id = cat.id AND cat.tenant_id = p.tenant_id
+        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id AND pt.tenant_id = p.tenant_id
+        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id AND tag.tenant_id = p.tenant_id
         ${whereClause}
         GROUP BY p.id
         ORDER BY p.published_at DESC
@@ -342,10 +371,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
 
     const countResult = await db
       .prepare(`SELECT COUNT(DISTINCT p.id) as total FROM blog_posts p
-        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
-        LEFT JOIN blog_categories cat ON pc.category_id = cat.id
-        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
-        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
+        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id AND pc.tenant_id = p.tenant_id
+        LEFT JOIN blog_categories cat ON pc.category_id = cat.id AND cat.tenant_id = p.tenant_id
+        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id AND pt.tenant_id = p.tenant_id
+        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id AND tag.tenant_id = p.tenant_id
         ${whereClause}`)
       .bind(...params)
       .first();
@@ -364,6 +393,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get single post by ID or slug (public view)
   publicApp.get('/posts/:idOrSlug', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant | null;
+    const tenantId = tenant?.id || 'default';
     const idOrSlug = c.req.param('idOrSlug');
 
     const post = await db
@@ -374,9 +405,9 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           u.email as author_email
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
-        WHERE (p.id = ? OR p.slug = ?) AND p.status = 'published'
+        WHERE p.tenant_id = ? AND (p.id = ? OR p.slug = ?) AND p.status = 'published'
       `)
-      .bind(idOrSlug, idOrSlug)
+      .bind(tenantId, idOrSlug, idOrSlug)
       .first();
 
     if (!post) {
@@ -387,20 +418,20 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     const categories = await db
       .prepare(`
         SELECT c.* FROM blog_categories c
-        JOIN blog_post_categories pc ON c.id = pc.category_id
-        WHERE pc.post_id = ?
+        JOIN blog_post_categories pc ON c.id = pc.category_id AND pc.tenant_id = c.tenant_id
+        WHERE pc.post_id = ? AND pc.tenant_id = ?
       `)
-      .bind(post.id)
+      .bind(post.id, tenantId)
       .all();
 
     // Get tags
     const tags = await db
       .prepare(`
         SELECT t.* FROM blog_tags t
-        JOIN blog_post_tags pt ON t.id = pt.tag_id
-        WHERE pt.post_id = ?
+        JOIN blog_post_tags pt ON t.id = pt.tag_id AND pt.tenant_id = t.tenant_id
+        WHERE pt.post_id = ? AND pt.tenant_id = ?
       `)
-      .bind(post.id)
+      .bind(post.id, tenantId)
       .all();
 
     return c.json({
@@ -413,6 +444,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all categories (public)
   publicApp.get('/categories', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant | null;
+    const tenantId = tenant?.id || 'default';
 
     const categories = await db
       .prepare(`
@@ -421,11 +454,13 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           COUNT(DISTINCT pc.post_id) as post_count,
           p.name as parent_name
         FROM blog_categories c
-        LEFT JOIN blog_post_categories pc ON c.id = pc.category_id
-        LEFT JOIN blog_categories p ON c.parent_id = p.id
+        LEFT JOIN blog_post_categories pc ON c.id = pc.category_id AND pc.tenant_id = c.tenant_id
+        LEFT JOIN blog_categories p ON c.parent_id = p.id AND p.tenant_id = c.tenant_id
+        WHERE c.tenant_id = ?
         GROUP BY c.id
         ORDER BY c.name
       `)
+      .bind(tenantId)
       .all();
 
     return c.json({ categories: categories.results || [] });
@@ -434,6 +469,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all tags (public)
   publicApp.get('/tags', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant | null;
+    const tenantId = tenant?.id || 'default';
 
     const tags = await db
       .prepare(`
@@ -441,10 +478,12 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           t.*,
           COUNT(DISTINCT pt.post_id) as post_count
         FROM blog_tags t
-        LEFT JOIN blog_post_tags pt ON t.id = pt.tag_id
+        LEFT JOIN blog_post_tags pt ON t.id = pt.tag_id AND pt.tenant_id = t.tenant_id
+        WHERE t.tenant_id = ?
         GROUP BY t.id
         ORDER BY t.name
       `)
+      .bind(tenantId)
       .all();
 
     return c.json({ tags: tags.results || [] });
@@ -465,16 +504,18 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all posts (including drafts) for admin
   adminApp.get('/posts', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const status = c.req.query('status');
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '10');
     const offset = (page - 1) * limit;
 
-    let whereClause = '';
-    let params: any[] = [];
+    let whereClause = 'WHERE p.tenant_id = ?';
+    let params: any[] = [tenantId];
 
     if (status) {
-      whereClause = 'WHERE p.status = ?';
+      whereClause += ' AND p.status = ?';
       params.push(status);
     }
 
@@ -488,10 +529,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           GROUP_CONCAT(DISTINCT tag.name) as tags
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
-        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
-        LEFT JOIN blog_categories cat ON pc.category_id = cat.id
-        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
-        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id
+        LEFT JOIN blog_post_categories pc ON p.id = pc.post_id AND pc.tenant_id = p.tenant_id
+        LEFT JOIN blog_categories cat ON pc.category_id = cat.id AND cat.tenant_id = p.tenant_id
+        LEFT JOIN blog_post_tags pt ON p.id = pt.post_id AND pt.tenant_id = p.tenant_id
+        LEFT JOIN blog_tags tag ON pt.tag_id = tag.id AND tag.tenant_id = p.tenant_id
         ${whereClause}
         GROUP BY p.id
         ORDER BY p.created_at DESC
@@ -519,6 +560,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get single post by ID for admin (including drafts)
   adminApp.get('/posts/:id', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const postId = c.req.param('id');
 
     const post = await db
@@ -529,9 +572,9 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           u.email as author_email
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
-        WHERE p.id = ?
+        WHERE p.id = ? AND p.tenant_id = ?
       `)
-      .bind(postId)
+      .bind(postId, tenantId)
       .first();
 
     if (!post) {
@@ -542,20 +585,20 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     const categories = await db
       .prepare(`
         SELECT c.* FROM blog_categories c
-        JOIN blog_post_categories pc ON c.id = pc.category_id
-        WHERE pc.post_id = ?
+        JOIN blog_post_categories pc ON c.id = pc.category_id AND pc.tenant_id = c.tenant_id
+        WHERE pc.post_id = ? AND pc.tenant_id = ?
       `)
-      .bind(post.id)
+      .bind(post.id, tenantId)
       .all();
 
     // Get tags
     const tags = await db
       .prepare(`
         SELECT t.* FROM blog_tags t
-        JOIN blog_post_tags pt ON t.id = pt.tag_id
-        WHERE pt.post_id = ?
+        JOIN blog_post_tags pt ON t.id = pt.tag_id AND pt.tenant_id = t.tenant_id
+        WHERE pt.post_id = ? AND pt.tenant_id = ?
       `)
-      .bind(post.id)
+      .bind(post.id, tenantId)
       .all();
 
     return c.json({
@@ -576,6 +619,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     }),
     async (c) => {
       const db = c.env.DB;
+      const tenant = c.get('tenant') as Tenant;
+      const tenantId = tenant.id;
       const data = await c.req.json();
       const user = (c as any).get('user');
 
@@ -585,10 +630,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
       // Generate slug from title
       const slug = data.slug || generateSlug(data.title);
 
-      // Check if slug exists
+      // Check if slug exists for this tenant
       const existing = await db
-        .prepare('SELECT id FROM blog_posts WHERE slug = ?')
-        .bind(slug)
+        .prepare('SELECT id FROM blog_posts WHERE slug = ? AND tenant_id = ?')
+        .bind(slug, tenantId)
         .first();
 
       if (existing) {
@@ -597,11 +642,12 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
 
       const result = await db
         .prepare(`
-          INSERT INTO blog_posts (title, slug, content, excerpt, author_id, status,
+          INSERT INTO blog_posts (tenant_id, title, slug, content, excerpt, author_id, status,
             featured_image, meta_title, meta_description, published_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .bind(
+          tenantId,
           data.title,
           slug,
           data.content,
@@ -623,8 +669,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
       if (data.category_ids && Array.isArray(data.category_ids)) {
         for (const categoryId of data.category_ids) {
           await db
-            .prepare('INSERT OR IGNORE INTO blog_post_categories (post_id, category_id) VALUES (?, ?)')
-            .bind(result.meta.last_row_id, categoryId)
+            .prepare('INSERT OR IGNORE INTO blog_post_categories (post_id, tenant_id, category_id) VALUES (?, ?, ?)')
+            .bind(result.meta.last_row_id, tenantId, categoryId)
             .run();
         }
       }
@@ -633,8 +679,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
       if (data.tag_ids && Array.isArray(data.tag_ids)) {
         for (const tagId of data.tag_ids) {
           await db
-            .prepare('INSERT OR IGNORE INTO blog_post_tags (post_id, tag_id) VALUES (?, ?)')
-            .bind(result.meta.last_row_id, tagId)
+            .prepare('INSERT OR IGNORE INTO blog_post_tags (post_id, tenant_id, tag_id) VALUES (?, ?, ?)')
+            .bind(result.meta.last_row_id, tenantId, tagId)
             .run();
         }
       }
@@ -651,13 +697,15 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Update post
   adminApp.put('/posts/:id', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const postId = c.req.param('id');
     const data = await c.req.json();
 
-    // Check if post exists
+    // Check if post exists and belongs to tenant
     const existing = await db
-      .prepare('SELECT * FROM blog_posts WHERE id = ?')
-      .bind(postId)
+      .prepare('SELECT * FROM blog_posts WHERE id = ? AND tenant_id = ?')
+      .bind(postId, tenantId)
       .first();
 
     if (!existing) {
@@ -669,10 +717,10 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     if (data.title && data.title !== existing.title) {
       slug = data.slug || generateSlug(data.title);
 
-      // Check if new slug exists
+      // Check if new slug exists for this tenant
       const slugExists = await db
-        .prepare('SELECT id FROM blog_posts WHERE slug = ? AND id != ?')
-        .bind(slug, postId)
+        .prepare('SELECT id FROM blog_posts WHERE slug = ? AND tenant_id = ? AND id != ?')
+        .bind(slug, tenantId, postId)
         .first();
 
       if (slugExists) {
@@ -724,37 +772,38 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     updates.push('updated_at = ?');
     values.push(Date.now() / 1000);
     values.push(postId);
+    values.push(tenantId);
 
     await db
-      .prepare(`UPDATE blog_posts SET ${updates.join(', ')} WHERE id = ?`)
+      .prepare(`UPDATE blog_posts SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`)
       .bind(...values)
       .run();
 
     // Update categories if provided
     if (data.category_ids !== undefined) {
-      await db.prepare('DELETE FROM blog_post_categories WHERE post_id = ?').bind(postId).run();
+      await db.prepare('DELETE FROM blog_post_categories WHERE post_id = ? AND tenant_id = ?').bind(postId, tenantId).run();
       for (const categoryId of data.category_ids) {
         await db
-          .prepare('INSERT OR IGNORE INTO blog_post_categories (post_id, category_id) VALUES (?, ?)')
-          .bind(postId, categoryId)
+          .prepare('INSERT OR IGNORE INTO blog_post_categories (post_id, tenant_id, category_id) VALUES (?, ?, ?)')
+          .bind(postId, tenantId, categoryId)
           .run();
       }
     }
 
     // Update tags if provided
     if (data.tag_ids !== undefined) {
-      await db.prepare('DELETE FROM blog_post_tags WHERE post_id = ?').bind(postId).run();
+      await db.prepare('DELETE FROM blog_post_tags WHERE post_id = ? AND tenant_id = ?').bind(postId, tenantId).run();
       for (const tagId of data.tag_ids) {
         await db
-          .prepare('INSERT OR IGNORE INTO blog_post_tags (post_id, tag_id) VALUES (?, ?)')
-          .bind(postId, tagId)
+          .prepare('INSERT OR IGNORE INTO blog_post_tags (post_id, tenant_id, tag_id) VALUES (?, ?, ?)')
+          .bind(postId, tenantId, tagId)
           .run();
       }
     }
 
     const updatedPost = await db
-      .prepare('SELECT * FROM blog_posts WHERE id = ?')
-      .bind(postId)
+      .prepare('SELECT * FROM blog_posts WHERE id = ? AND tenant_id = ?')
+      .bind(postId, tenantId)
       .first();
 
     return c.json(updatedPost);
@@ -763,9 +812,11 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Delete post (requires posts.delete feature)
   adminApp.delete('/posts/:id', requireBlogFeature('posts.delete'), async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const postId = c.req.param('id');
 
-    const result = await db.prepare('DELETE FROM blog_posts WHERE id = ?').bind(postId).run();
+    const result = await db.prepare('DELETE FROM blog_posts WHERE id = ? AND tenant_id = ?').bind(postId, tenantId).run();
 
     if (result.meta.changes === 0) {
       return c.json({ error: 'Post not found' }, 404);
@@ -777,22 +828,24 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Publish post (requires posts.publish feature)
   adminApp.patch('/posts/:id/publish', requireBlogFeature('posts.publish'), async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const postId = c.req.param('id');
 
     const result = await db
       .prepare(`
         UPDATE blog_posts
         SET status = 'published', published_at = strftime('%s', 'now'), updated_at = strftime('%s', 'now')
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `)
-      .bind(postId)
+      .bind(postId, tenantId)
       .run();
 
     if (result.meta.changes === 0) {
       return c.json({ error: 'Post not found' }, 404);
     }
 
-    const post = await db.prepare('SELECT * FROM blog_posts WHERE id = ?').bind(postId).first();
+    const post = await db.prepare('SELECT * FROM blog_posts WHERE id = ? AND tenant_id = ?').bind(postId, tenantId).first();
 
     return c.json(post);
   });
@@ -804,6 +857,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all categories (admin)
   adminApp.get('/categories', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
 
     const categories = await db
       .prepare(`
@@ -812,11 +867,13 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           COUNT(DISTINCT pc.post_id) as post_count,
           p.name as parent_name
         FROM blog_categories c
-        LEFT JOIN blog_post_categories pc ON c.id = pc.category_id
-        LEFT JOIN blog_categories p ON c.parent_id = p.id
+        LEFT JOIN blog_post_categories pc ON c.id = pc.category_id AND pc.tenant_id = c.tenant_id
+        LEFT JOIN blog_categories p ON c.parent_id = p.id AND p.tenant_id = c.tenant_id
+        WHERE c.tenant_id = ?
         GROUP BY c.id
         ORDER BY c.name
       `)
+      .bind(tenantId)
       .all();
 
     return c.json({ categories: categories.results || [] });
@@ -824,6 +881,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
 
   adminApp.post('/categories', requireBlogFeature('categories.manage'), async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const data = await c.req.json();
 
     if (!data.name) {
@@ -833,8 +892,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     const slug = data.slug || generateSlug(data.name);
 
     const result = await db
-      .prepare('INSERT INTO blog_categories (name, slug, description, parent_id) VALUES (?, ?, ?, ?)')
-      .bind(data.name, slug, data.description || null, data.parent_id || null)
+      .prepare('INSERT INTO blog_categories (tenant_id, name, slug, description, parent_id) VALUES (?, ?, ?, ?, ?)')
+      .bind(tenantId, data.name, slug, data.description || null, data.parent_id || null)
       .run();
 
     if (!result.success) {
@@ -856,6 +915,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
   // Get all tags (admin)
   adminApp.get('/tags', async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
 
     const tags = await db
       .prepare(`
@@ -863,10 +924,12 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
           t.*,
           COUNT(DISTINCT pt.post_id) as post_count
         FROM blog_tags t
-        LEFT JOIN blog_post_tags pt ON t.id = pt.tag_id
+        LEFT JOIN blog_post_tags pt ON t.id = pt.tag_id AND pt.tenant_id = t.tenant_id
+        WHERE t.tenant_id = ?
         GROUP BY t.id
         ORDER BY t.name
       `)
+      .bind(tenantId)
       .all();
 
     return c.json({ tags: tags.results || [] });
@@ -874,6 +937,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
 
   adminApp.post('/tags', requireBlogFeature('tags.manage'), async (c) => {
     const db = c.env.DB;
+    const tenant = c.get('tenant') as Tenant;
+    const tenantId = tenant.id;
     const data = await c.req.json();
 
     if (!data.name) {
@@ -883,8 +948,8 @@ export function createBlogRoutes(): Hono<{ Bindings: Env }> {
     const slug = data.slug || generateSlug(data.name);
 
     const result = await db
-      .prepare('INSERT INTO blog_tags (name, slug) VALUES (?, ?)')
-      .bind(data.name, slug)
+      .prepare('INSERT INTO blog_tags (tenant_id, name, slug) VALUES (?, ?, ?)')
+      .bind(tenantId, data.name, slug)
       .run();
 
     if (!result.success) {

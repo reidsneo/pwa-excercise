@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import type { PluginState, PluginManifest } from '@/shared/plugin';
 import { PluginStatus } from '@/shared/plugin';
+import { useAuth } from '@/contexts/AuthContext';
 
 // -----------------------------------------------------------------------------
 // Auth Helper
@@ -617,11 +618,13 @@ interface BackendPlugin {
 }
 
 export function AdminPlugins() {
-  const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
-  const [backendStates, setBackendStates] = useState<PluginState[]>([]);
-  const [loadingStates, setLoadingStates] = useState(true);
-  const [configurePluginId, setConfigurePluginId] = useState<string | null>(null);
-  const [loading, setLoading] = useState<string | null>(null);
+	const { tenant } = useAuth();
+	const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
+	const [backendStates, setBackendStates] = useState<PluginState[]>([]);
+	const [loadingStates, setLoadingStates] = useState(true);
+	const [configurePluginId, setConfigurePluginId] = useState<string | null>(null);
+	const [loading, setLoading] = useState<string | null>(null);
+	const [activeTab, setActiveTab] = useState('installed');
 
   // Fetch plugins and states from backend API
   const fetchBackendData = async () => {
@@ -748,7 +751,7 @@ export function AdminPlugins() {
         <div>
           <h2 className="text-3xl font-bold">Plugins</h2>
           <p className="text-muted-foreground">
-            {backendPlugins.length} plugin{backendPlugins.length !== 1 ? 's' : ''} installed
+            {backendStates.length} plugin{backendStates.length !== 1 ? 's' : ''} installed
           </p>
         </div>
       </div>
@@ -767,20 +770,43 @@ export function AdminPlugins() {
         </TabsList>
 
         <TabsContent value="installed">
-          <InstalledPlugins
-            manifests={backendPlugins}
-            states={backendStates}
-            onEnable={handleEnable}
-            onDisable={handleDisable}
-            onUninstall={handleUninstall}
-            onConfigure={setConfigurePluginId}
-            loadingPluginId={loading}
-          />
+          {backendStates.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-8">
+                  <Puzzle className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Plugins Installed</h3>
+                  <p className="text-muted-foreground mb-4">
+                    {tenant ? (
+                      "Install plugins from the marketplace to get started."
+                    ) : (
+                      "Plugins are tenant-specific. Please access this page from your tenant subdomain (e.g., your-tenant.localhost:8787/admin/plugins)."
+                    )}
+                  </p>
+                  {tenant && (
+                    <Button onClick={() => setActiveTab('marketplace')}>
+                      Browse Marketplace
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <InstalledPlugins
+              manifests={backendPlugins}
+              states={backendStates}
+              onEnable={handleEnable}
+              onDisable={handleDisable}
+              onUninstall={handleUninstall}
+              onConfigure={setConfigurePluginId}
+              loadingPluginId={loading}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="marketplace">
           <Marketplace
-            installedIds={backendPlugins.map((m) => m.id)}
+            installedIds={backendStates.map((s) => s.id)}
             onInstall={handleInstall}
             loadingPluginId={loading}
           />
