@@ -39,9 +39,8 @@ import {
 	AvatarFallback,
 	AvatarImage,
 } from "@/components/ui/avatar";
-import { LayoutDashboard, Users, Shield, Puzzle, BarChart, Settings, FileText, ChevronLeft, ChevronRight, MoreHorizontal, User, LogIn, LogOut, Menu, ChevronsUpDown, Command, Search } from "lucide-react";
+import { LayoutDashboard, Users, Shield, Puzzle, BarChart, Settings, FileText, User, LogIn, LogOut, ChevronsUpDown, Command, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
 	Dialog,
@@ -68,7 +67,6 @@ export function AdminApp() {
 	const { hasPermission, user, tenant, logout } = useAuth();
 	const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
 	const location = useLocation();
-	const navigate = useLocation();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedIndex, setSelectedIndex] = useState(0);
@@ -369,57 +367,10 @@ export function AdminApp() {
 			</Sidebar>
 
 			<SidebarInset>
-				<header className="z-50 h-16 shadow-none">
+				<header className="z-50 h-16 shadow-none peer-data-[mobile-open=true]/sidebar-wrapper:z-50 max-md:peer-data-[mobile-open=true]/sidebar-wrapper:z-[40]">
 					<div className="relative flex h-full items-center gap-3 p-4 sm:gap-4">
 						<SidebarTrigger className="-ml-1" />
 						<Separator orientation="vertical" className="h-6" />
-
-						{/* Mobile menu button */}
-						<div className="lg:hidden">
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button variant="outline" size="icon" className="size-9 md:size-7">
-										<Menu />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="start">
-									{filteredMenuItems.map((item) => {
-										const Icon = item.icon;
-										return (
-											<DropdownMenuItem key={item.path} asChild>
-												<Link to={item.path} className="cursor-pointer">
-													<Icon className="mr-2 h-4 w-4" />
-													{item.label}
-												</Link>
-											</DropdownMenuItem>
-										);
-									})}
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</div>
-
-						{/* Desktop navigation - hidden, show only on mobile */}
-						<nav className="hidden items-center space-x-4 lg:flex lg:space-x-4 xl:space-x-6 max-lg:hidden">
-							<Link
-								to="/admin"
-								className={`text-sm font-medium transition-colors hover:text-primary ${
-									location.pathname === '/admin' ? '' : 'text-muted-foreground'
-								}`}
-							>
-								Dashboard
-							</Link>
-							{filteredMenuItems.map((item) => (
-								<Link
-									key={item.path}
-									to={item.path}
-									className={`text-sm font-medium transition-colors hover:text-primary ${
-										location.pathname === item.path ? '' : 'text-muted-foreground'
-									}`}
-								>
-									{item.label}
-								</Link>
-							))}
-						</nav>
 
 						{/* Right side actions */}
 						<div className="ms-auto flex items-center space-x-4">

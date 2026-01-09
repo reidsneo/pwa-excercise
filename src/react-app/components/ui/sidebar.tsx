@@ -33,6 +33,9 @@ type SidebarContextProps = {
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
 
+// Export the context so other components can use it (like dropdown-menu)
+export { SidebarContext }
+
 function useSidebar() {
   const context = React.useContext(SidebarContext)
   if (!context) {
@@ -139,6 +142,7 @@ function SidebarProvider({
       <TooltipProvider delayDuration={0}>
         <div
           data-slot='sidebar-wrapper'
+          data-mobile-open={isMobile && openMobile ? 'true' : undefined}
           style={
             {
               '--sidebar-width': SIDEBAR_WIDTH,
@@ -196,13 +200,13 @@ function Sidebar({
         {/* Overlay for mobile - render before sidebar so it's behind */}
         {openMobile && (
           <div
-            className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm md:hidden"
             onClick={() => setOpenMobile(false)}
           />
         )}
         <div
           className={cn(
-            'fixed inset-y-0 z-50 bg-sidebar p-0 text-sidebar-foreground transition-transform duration-200 ease-in-out w-[var(--sidebar-width)]',
+            'fixed inset-y-0 z-[70] bg-sidebar p-0 text-sidebar-foreground transition-transform duration-200 ease-in-out w-[var(--sidebar-width)]',
             side === 'left' ? 'left-0' : 'right-0',
             openMobile ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full'
           )}
@@ -345,7 +349,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='sidebar-header'
       data-sidebar='header'
-      className={cn('flex flex-col gap-2 p-2', className)}
+      className={cn('flex flex-col gap-2 p-2 group-data-[collapsible=icon]:p-0', className)}
       {...props}
     />
   )
@@ -356,7 +360,7 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='sidebar-footer'
       data-sidebar='footer'
-      className={cn('flex flex-col gap-2 p-2', className)}
+      className={cn('flex flex-col gap-2 p-2 group-data-[collapsible=icon]:p-0', className)}
       {...props}
     />
   )
@@ -482,18 +486,18 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-start text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+  'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        default: 'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground text-start',
         outline:
           'bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]',
       },
       size: {
         default: 'h-8 text-sm',
         sm: 'h-7 text-xs',
-        lg: 'h-12 text-sm group-data-[collapsible=icon]:p-0!',
+        lg: 'h-12 text-sm',
       },
     },
     defaultVariants: {
@@ -510,6 +514,8 @@ function SidebarMenuButton({
   size = 'default',
   tooltip,
   className,
+  onClick,
+  children,
   ...props
 }: React.ComponentProps<'button'> & {
   asChild?: boolean
@@ -517,7 +523,14 @@ function SidebarMenuButton({
   tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot : 'button'
-  const { isMobile, state } = useSidebar()
+  const { isMobile, state, setOpenMobile } = useSidebar()
+
+  const handleClick = (e: React.MouseEvent) => {
+    // Close mobile sidebar when menu item is clicked
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
 
   const button = (
     <Comp
@@ -526,8 +539,11 @@ function SidebarMenuButton({
       data-size={size}
       data-active={isActive}
       className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+      onClick={handleClick}
       {...props}
-    />
+    >
+      {children}
+    </Comp>
   )
 
   if (!tooltip) {
