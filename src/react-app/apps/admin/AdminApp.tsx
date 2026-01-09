@@ -264,7 +264,7 @@ export function AdminApp() {
 						<SidebarGroupContent>
 							<SidebarMenu>
 								<SidebarMenuItem>
-									<SidebarMenuButton asChild isActive={location.pathname === '/admin'}>
+									<SidebarMenuButton asChild tooltip="Dashboard" isActive={location.pathname === '/admin'}>
 										<Link to="/admin">
 											<LayoutDashboard />
 											<span>Dashboard</span>
@@ -283,7 +283,7 @@ export function AdminApp() {
 									const Icon = item.icon;
 									return (
 										<SidebarMenuItem key={item.path}>
-											<SidebarMenuButton asChild isActive={location.pathname === item.path}>
+											<SidebarMenuButton asChild tooltip={item.label} isActive={location.pathname === item.path}>
 												<Link to={item.path}>
 													<Icon />
 													<span>{item.label}</span>
@@ -378,7 +378,7 @@ export function AdminApp() {
 							<Dialog open={searchOpen} onOpenChange={setSearchOpen}>
 								<Button
 									variant="outline"
-									className={`relative h-8 w-full justify-start rounded-md bg-muted/25 px-4 py-2 text-sm font-normal text-muted-foreground shadow-none hover:bg-accent sm:w-40 sm:pe-12 md:flex-none lg:w-52 xl:w-64 has-[>svg]:px-3`}
+									className={`relative h-8 w-full justify-start rounded-md bg-muted/25 px-4 py-2 text-sm font-normal text-muted-foreground shadow-none hover:bg-accent sm:w-40 sm:pe-12 hidden md:flex-none lg:w-52 xl:w-64 has-[>svg]:px-3`}
 									onClick={() => setSearchOpen(true)}
 								>
 									<Search className="absolute start-1.5 top-1/2 size-4 -translate-y-1/2" />
@@ -476,7 +476,7 @@ export function AdminApp() {
 							<ThemeToggle />
 
 							{/* Settings button */}
-							<Button variant="ghost" size="icon" className="size-9 rounded-full" asChild>
+							<Button variant="ghost" size="icon" className="size-9 rounded-full hidden md:flex" asChild>
 								<Link to="/admin/settings">
 									<Settings />
 								</Link>
@@ -492,7 +492,7 @@ export function AdminApp() {
 											</Avatar>
 										</Button>
 									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end" side="right" className="w-56">
+									<DropdownMenuContent align="end" side="bottom" className="w-56">
 										<DropdownMenuLabel>
 											<div className="flex flex-col space-y-1">
 												<p className="text-xs font-medium leading-none text-muted-foreground">
